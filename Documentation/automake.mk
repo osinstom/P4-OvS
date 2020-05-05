@@ -46,6 +46,13 @@ DOC_SOURCE = \
 	Documentation/topics/fuzzing/ovs-fuzzing-infrastructure.rst \
 	Documentation/topics/fuzzing/ovs-fuzzers.rst \
 	Documentation/topics/fuzzing/security-analysis-of-ovs-fuzzers.rst \
+	Documentation/topics/p4/design.md \
+	Documentation/topics/p4/getting-started.md \
+	Documentation/topics/p4/install.md \
+	Documentation/topics/p4/ovsp4-architecture.png \
+	Documentation/topics/p4/release-notes.md \
+	Documentation/topics/p4/roadmap.md \
+	Documentation/topics/p4/usage.md \
 	Documentation/topics/testing.rst \
 	Documentation/topics/integration.rst \
 	Documentation/topics/language-bindings.rst \

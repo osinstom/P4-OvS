@@ -74,7 +74,8 @@ EXTRA_DIST = \
 	CONTRIBUTING.rst \
 	LICENSE \
 	MAINTAINERS.rst \
-	README.rst \
+	README-original.rst \
+	README.md \
 	NOTICE \
 	.cirrus.yml \
 	.travis.yml \
