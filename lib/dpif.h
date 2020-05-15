@@ -891,7 +891,14 @@ int dpif_meter_get(const struct dpif *, ofproto_meter_id meter_id,
                    struct ofputil_meter_stats *, uint16_t n_bands);
 int dpif_meter_del(struct dpif *, ofproto_meter_id meter_id,
                    struct ofputil_meter_stats *, uint16_t n_bands);
-
+
+/* P4 datapath. */
+struct dpif_prog {
+    uint32_t id;
+    char *data;
+    size_t data_len;
+};
+
 /* Miscellaneous. */
 
 void dpif_get_netflow_ids(const struct dpif *,

@@ -71,6 +71,7 @@
 #include "lib/vswitch-idl.h"
 #include "xenserver.h"
 #include "vlan-bitmap.h"
+#include "p4rt/p4rt.h"
 
 VLOG_DEFINE_THIS_MODULE(bridge);
 
@@ -122,6 +123,10 @@ struct bridge {
     struct eth_addr ea;         /* Bridge Ethernet Address. */
     struct eth_addr default_ea; /* Default MAC. */
     const struct ovsrec_bridge *cfg;
+
+    bool p4;
+    /* P4Runtime switch processing. */
+    struct p4rt *p4rt;          /* P4Runtime switch. */
 
     /* OpenFlow switch processing. */
     struct ofproto *ofproto;    /* OpenFlow switch. */
@@ -278,6 +283,10 @@ static void bridge_del_ports(struct bridge *,
 static void bridge_add_ports(struct bridge *,
                              const struct shash *wanted_ports);
 
+static void bridge_delete_p4rts(void);
+static void bridge_delete_or_reconfigure_p4rt_program(struct bridge *br);
+static void bridge_delete_or_reconfigure_p4rt_ports(struct bridge *);
+
 static void bridge_configure_datapath_id(struct bridge *);
 static void bridge_configure_netflow(struct bridge *);
 static void bridge_configure_forward_bpdu(struct bridge *);
@@ -404,6 +413,20 @@ bridge_init_ofproto(const struct ovsrec_open_vswitch *cfg)
 }
 
 static void
+bridge_init_p4rt(const struct ovsrec_open_vswitch *cfg)
+{
+    static bool initialized = false;
+
+    if (initialized) {
+        return;
+    }
+
+    p4rt_init();
+
+    initialized = true;
+}
+
+static void
 if_change_cb(void *aux OVS_UNUSED)
 {
     seq_change(ifaces_changed);
@@ -455,6 +478,7 @@ bridge_init(const char *remote)
     ovsdb_idl_omit_alert(idl, &ovsrec_bridge_col_rstp_status);
     ovsdb_idl_omit_alert(idl, &ovsrec_bridge_col_stp_enable);
     ovsdb_idl_omit_alert(idl, &ovsrec_bridge_col_rstp_enable);
+    ovsdb_idl_omit_alert(idl, &ovsrec_bridge_col_p4);
     ovsdb_idl_omit(idl, &ovsrec_bridge_col_external_ids);
 
     ovsdb_idl_omit_alert(idl, &ovsrec_port_col_status);
@@ -810,6 +834,27 @@ datapath_reconfigure(const struct ovsrec_open_vswitch *cfg)
 }
 
 static void
+bridge_configure_p4rt_datapath_id(struct bridge *br)
+{
+    char *dpid_string = xasprintf("%016"PRIx64, 0);;
+    ovsrec_bridge_set_datapath_id(br->cfg, dpid_string);
+    free(dpid_string);
+}
+
+static void
+bridge_configure_p4_datapath(struct bridge *br)
+{
+    const char *program_path = smap_get(&br->cfg->other_config, "program");
+    if (program_path == NULL) {
+        VLOG_WARN("bridge %s: P4 target binary not provided. "
+                  "Initializing P4 datapath with no P4 program!", br->name);
+        return;
+    }
+
+    p4rt_initialize_datapath(br->p4rt, program_path);
+}
+
+static void
 bridge_reconfigure(const struct ovsrec_open_vswitch *ovs_cfg)
 {
     struct sockaddr_in *managers;
@@ -861,9 +906,15 @@ bridge_reconfigure(const struct ovsrec_open_vswitch *ovs_cfg)
      * the ports to be added might require resources that will be freed up by
      * deletions (they might especially overlap in name). */
     bridge_delete_ofprotos();
+    /*
+     * Do the same (above) for P4rt bridges.
+     */
+    bridge_delete_p4rts();
     HMAP_FOR_EACH (br, node, &all_bridges) {
         if (br->ofproto) {
             bridge_delete_or_reconfigure_ports(br);
+        } else if (br->p4rt) {
+            bridge_delete_or_reconfigure_p4rt_ports(br);
         }
     }
 
@@ -873,7 +924,8 @@ bridge_reconfigure(const struct ovsrec_open_vswitch *ovs_cfg)
      *
      *     - Add ports that are missing. */
     HMAP_FOR_EACH_SAFE (br, next, node, &all_bridges) {
-        if (!br->ofproto) {
+
+        if (!br->p4 && !br->ofproto) {
             int error;
 
             error = ofproto_create(br->name, br->type, &br->ofproto);
@@ -885,6 +937,15 @@ bridge_reconfigure(const struct ovsrec_open_vswitch *ovs_cfg)
             } else {
                 /* Trigger storing datapath version. */
                 seq_change(connectivity_seq_get());
+            }
+        }
+        if (br->p4 && !br->p4rt) {
+            int error;
+            error = p4rt_create(br->name, br->type, &br->p4rt);
+            if (error) {
+                VLOG_ERR("failed to create bridge %s: %s", br->name,
+                         ovs_strerror(error));
+                bridge_destroy(br, true);
             }
         }
     }
@@ -907,41 +968,53 @@ bridge_reconfigure(const struct ovsrec_open_vswitch *ovs_cfg)
 
         /* We need the datapath ID early to allow LACP ports to use it as the
          * default system ID. */
-        bridge_configure_datapath_id(br);
+        if (!br->p4) {
+            bridge_configure_datapath_id(br);
+        } else {
+            bridge_configure_p4rt_datapath_id(br);
+        }
 
         HMAP_FOR_EACH (port, hmap_node, &br->ports) {
             struct iface *iface;
 
-            port_configure(port);
+            if (!br->p4) {
+                port_configure(port);
+            }
 
             LIST_FOR_EACH (iface, port_elem, &port->ifaces) {
                 iface_set_ofport(iface->cfg, iface->ofp_port);
                 /* Clear eventual previous errors */
                 ovsrec_interface_set_error(iface->cfg, NULL);
-                iface_configure_cfm(iface);
-                iface_configure_qos(iface, port->cfg->qos);
-                iface_set_mac(br, port, iface);
-                ofproto_port_set_bfd(br->ofproto, iface->ofp_port,
-                                     &iface->cfg->bfd);
-                ofproto_port_set_lldp(br->ofproto, iface->ofp_port,
-                                      &iface->cfg->lldp);
-                ofproto_port_set_config(br->ofproto, iface->ofp_port,
-                                        &iface->cfg->other_config);
+                if (!br->p4) {
+                    iface_configure_cfm(iface);
+                    iface_configure_qos(iface, port->cfg->qos);
+                    iface_set_mac(br, port, iface);
+                    ofproto_port_set_bfd(br->ofproto, iface->ofp_port,
+                                         &iface->cfg->bfd);
+                    ofproto_port_set_lldp(br->ofproto, iface->ofp_port,
+                                          &iface->cfg->lldp);
+                    ofproto_port_set_config(br->ofproto, iface->ofp_port,
+                                            &iface->cfg->other_config);
+                }
             }
         }
-        bridge_configure_mirrors(br);
-        bridge_configure_forward_bpdu(br);
-        bridge_configure_mac_table(br);
-        bridge_configure_mcast_snooping(br);
-        bridge_configure_remotes(br, managers, n_managers);
-        bridge_configure_netflow(br);
-        bridge_configure_sflow(br, &sflow_bridge_number);
-        bridge_configure_ipfix(br);
-        bridge_configure_spanning_tree(br);
-        bridge_configure_tables(br);
-        bridge_configure_dp_desc(br);
-        bridge_configure_serial_desc(br);
-        bridge_configure_aa(br);
+        if (!br->p4) {
+            bridge_configure_mirrors(br);
+            bridge_configure_forward_bpdu(br);
+            bridge_configure_mac_table(br);
+            bridge_configure_mcast_snooping(br);
+            bridge_configure_remotes(br, managers, n_managers);
+            bridge_configure_netflow(br);
+            bridge_configure_sflow(br, &sflow_bridge_number);
+            bridge_configure_ipfix(br);
+            bridge_configure_spanning_tree(br);
+            bridge_configure_tables(br);
+            bridge_configure_dp_desc(br);
+            bridge_configure_serial_desc(br);
+            bridge_configure_aa(br);
+        } else {
+            bridge_configure_p4_datapath(br);
+        }
     }
     free(managers);
 
@@ -982,6 +1055,34 @@ bridge_delete_ofprotos(void)
     sset_destroy(&types);
 }
 
+static void
+bridge_delete_p4rts(void)
+{
+    struct bridge *br;
+    struct sset names;
+    struct sset types;
+    const char *type;
+
+    /* Delete p4rts with no bridge or with the wrong type. */
+    sset_init(&names);
+    sset_init(&types);
+
+    p4rt_enumerate_types(&types);
+    SSET_FOR_EACH (type, &types) {
+        const char *name;
+
+        p4rt_enumerate_names(type, &names);
+        SSET_FOR_EACH (name, &names) {
+            br = bridge_lookup(name);
+            if (!br || strcmp(type, br->type)) {
+                p4rt_delete(name, type);
+            }
+        }
+    }
+    sset_destroy(&names);
+    sset_destroy(&types);
+}
+
 static ofp_port_t *
 add_ofp_port(ofp_port_t port, ofp_port_t *ports, size_t *n, size_t *allocated)
 {
@@ -1008,6 +1109,28 @@ iface_set_netdev_mtu(const struct ovsrec_interface *iface_cfg,
     /* The user didn't explicitly asked for any MTU. */
     netdev_mtu_user_config(netdev, false);
     return 0;
+}
+
+static void
+bridge_delete_or_reconfigure_p4rt_ports(struct bridge *br)
+{
+    struct port *port, *port_next;
+    struct p4rt *p4rt = br->p4rt;
+    const char *devname;
+
+    struct sset p4rt_ports;
+    sset_init(&p4rt_ports);
+    p4rt_get_ports(br->p4rt, &p4rt_ports);
+
+    SSET_FOR_EACH (devname, &p4rt_ports) {
+        struct iface *iface;
+        iface = iface_lookup(br, devname);
+        if (!iface) {
+            p4rt_port_del(br->p4rt, devname);
+            iface_destroy__(iface);
+        }
+    }
+    sset_destroy(&p4rt_ports);
 }
 
 static void
@@ -2040,8 +2163,14 @@ iface_do_create(const struct bridge *br,
         goto error;
     }
 
-    type = ofproto_port_open_type(br->ofproto,
-                                  iface_get_type(iface_cfg, br->cfg));
+    if (!br->p4) {
+        type = ofproto_port_open_type(br->ofproto,
+                                      iface_get_type(iface_cfg, br->cfg));
+    } else {
+        /* For userspace datapath the "internal" port must be created as "tap". */
+        type = p4rt_port_open_type(br->p4rt,
+                                   iface_get_type(iface_cfg, br->cfg));
+    }
     error = netdev_open(iface_cfg->name, type, &netdev);
     if (error) {
         VLOG_WARN_BUF(errp, "could not open network device %s (%s)",
@@ -2057,12 +2186,16 @@ iface_do_create(const struct bridge *br,
     iface_set_netdev_mtu(iface_cfg, netdev);
 
     *ofp_portp = iface_pick_ofport(iface_cfg);
-    error = ofproto_port_add(br->ofproto, netdev, ofp_portp);
+    if (!br->p4) {
+        error = ofproto_port_add(br->ofproto, netdev, ofp_portp);
+    } else {
+        error = p4rt_port_add(br->p4rt, netdev, ofp_portp);
+    }
     if (error) {
         static struct vlog_rate_limit rl = VLOG_RATE_LIMIT_INIT(1, 5);
 
-        *errp = xasprintf("could not add network device %s to ofproto (%s)",
-                          iface_cfg->name, ovs_strerror(error));
+        *errp = xasprintf("could not add network device %s to %s (%s)",
+                          iface_cfg->name, br->p4 ? "p4rt" : "ofproto", ovs_strerror(error));
         if (!VLOG_DROP_WARN(&rl)) {
             VLOG_WARN("%s", *errp);
         }
@@ -3032,6 +3165,9 @@ refresh_controller_status(void)
 
     /* Accumulate status for controllers on all bridges. */
     HMAP_FOR_EACH (br, node, &all_bridges) {
+        if (br->p4) {
+            continue;
+        }
         struct shash info = SHASH_INITIALIZER(&info);
         ofproto_get_ofproto_controller_info(br->ofproto, &info);
 
@@ -3102,8 +3238,13 @@ run_stats_update(void)
                     LIST_FOR_EACH (iface, port_elem, &port->ifaces) {
                         iface_refresh_stats(iface);
                     }
-                    port_refresh_stp_stats(port);
-                    port_refresh_rstp_stats(port);
+                    if (!br->p4) {
+                        port_refresh_stp_stats(port);
+                        port_refresh_rstp_stats(port);
+                    }
+                }
+                if (br->p4) {
+                    continue;
                 }
                 HMAP_FOR_EACH (m, hmap_node, &br->mirrors) {
                     mirror_refresh_stats(m);
@@ -3154,18 +3295,25 @@ run_status_update(void)
             HMAP_FOR_EACH (br, node, &all_bridges) {
                 struct port *port;
 
-                br_refresh_stp_status(br);
-                br_refresh_rstp_status(br);
-                br_refresh_datapath_info(br);
+                if (!br->p4) {
+                    br_refresh_stp_status(br);
+                    br_refresh_rstp_status(br);
+                    /* TODO: Move outside if block. */
+                    br_refresh_datapath_info(br);
+                }
                 HMAP_FOR_EACH (port, hmap_node, &br->ports) {
                     struct iface *iface;
 
-                    port_refresh_stp_status(port);
-                    port_refresh_rstp_status(port);
+                    if (!br->p4) {
+                        port_refresh_stp_status(port);
+                        port_refresh_rstp_status(port);
+                    }
                     port_refresh_bond_status(port, status_txn_try_again);
                     LIST_FOR_EACH (iface, port_elem, &port->ifaces) {
                         iface_refresh_netdev_status(iface);
-                        iface_refresh_ofproto_status(iface);
+                        if (!br->p4) {
+                            iface_refresh_ofproto_status(iface);
+                        }
                     }
                 }
             }
@@ -3197,6 +3345,9 @@ run_status_update(void)
         struct bridge *br;
 
         HMAP_FOR_EACH (br, node, &all_bridges) {
+            if (br->p4) {
+                continue;
+            }
             if (bridge_aa_need_refresh(br)) {
                 struct ovsdb_idl_txn *txn;
 
@@ -3232,7 +3383,7 @@ static void
 bridge_run__(void)
 {
     struct bridge *br;
-    struct sset types;
+    struct sset types, p4types;
     const char *type;
 
     /* Let each datapath type do the work that it needs to do. */
@@ -3243,9 +3394,21 @@ bridge_run__(void)
     }
     sset_destroy(&types);
 
+    /* Let each P4 datapath type do the work that it needs to do. */
+    sset_init(&p4types);
+    p4rt_enumerate_types(&p4types);
+    SSET_FOR_EACH (type, &p4types) {
+        p4rt_type_run(type);
+    }
+    sset_destroy(&p4types);
+
     /* Let each bridge do the work that it needs to do. */
     HMAP_FOR_EACH (br, node, &all_bridges) {
-        ofproto_run(br->ofproto);
+        if (br->ofproto) {
+            ofproto_run(br->ofproto);
+        } else if (br->p4rt) {
+            p4rt_run(br->p4rt);
+        }
     }
 }
 
@@ -3296,6 +3459,9 @@ bridge_run(void)
      * initialization has already occurred, bridge_init_ofproto()
      * returns immediately. */
     bridge_init_ofproto(cfg);
+
+    /* Initialize the p4rt library. */
+    bridge_init_p4rt(cfg);
 
     /* Once the value of flow-restore-wait is false, we no longer should
      * check its value from the database. */
@@ -3392,7 +3558,9 @@ bridge_wait(void)
         struct bridge *br;
 
         HMAP_FOR_EACH (br, node, &all_bridges) {
-            ofproto_wait(br->ofproto);
+            if (br->ofproto) {
+                ofproto_wait(br->ofproto);
+            }
         }
         stats_update_wait();
         status_update_wait();
@@ -3418,7 +3586,9 @@ bridge_get_memory_usage(struct simap *usage)
     sset_destroy(&types);
 
     HMAP_FOR_EACH (br, node, &all_bridges) {
-        ofproto_get_memory_usage(br->ofproto, usage);
+        if (br->ofproto) {
+            ofproto_get_memory_usage(br->ofproto, usage);
+        }
     }
 }
 
@@ -3571,6 +3741,11 @@ bridge_create(const struct ovsrec_bridge *br_cfg)
     br->type = xstrdup(ofproto_normalize_type(br_cfg->datapath_type));
     br->cfg = br_cfg;
 
+    br->p4 = br_cfg->p4;
+    if (br->p4) {
+        VLOG_INFO("Setting P4 support for bridge %s", br->name);
+    }
+
     /* Derive the default Ethernet address from the bridge's UUID.  This should
      * be unique and it will be stable between ovs-vswitchd runs.  */
     memcpy(&br->default_ea, &br_cfg->header_.uuid, ETH_ADDR_LEN);
@@ -3600,7 +3775,11 @@ bridge_destroy(struct bridge *br, bool del)
         }
 
         hmap_remove(&all_bridges, &br->node);
-        ofproto_destroy(br->ofproto, del);
+        if (br->p4) {
+            p4rt_destroy(br->p4rt, del);
+        } else {
+            ofproto_destroy(br->ofproto, del);
+        }
         hmap_destroy(&br->ifaces);
         hmap_destroy(&br->ports);
         hmap_destroy(&br->iface_by_name);
