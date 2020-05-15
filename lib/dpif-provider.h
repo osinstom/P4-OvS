@@ -103,6 +103,7 @@ struct dpif_ipf_status {
    unsigned int nfrag_max;
 };
 
+
 /* Datapath interface class structure, to be defined by each implementation of
  * a datapath interface.
  *
@@ -616,10 +617,17 @@ struct dpif_class {
      * zero. */
     int (*meter_del)(struct dpif *, ofproto_meter_id meter_id,
                      struct ofputil_meter_stats *, uint16_t n_bands);
+
+    /* Adds or modifies the data plane program in `dpif` */
+    int (*dp_prog_set)(struct dpif *, struct dpif_prog prog);
+
+    /* Removes a data plane program `prog_id` from `dpif`. */
+    void (*dp_prog_unset)(struct dpif *, uint32_t prog_id);
 };
 
 extern const struct dpif_class dpif_netlink_class;
 extern const struct dpif_class dpif_netdev_class;
+extern const struct dpif_class dpif_ubpf_class;
 
 #ifdef  __cplusplus
 }
