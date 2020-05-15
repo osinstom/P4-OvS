@@ -63,6 +63,7 @@ The following modifications have been applied to original OVS code to enable P4 
 * `dpif-netdev.c / create_dp_netdev()` - the memory allocation has been moved outside the `create_dp_netdev()` function,
 to allow `dpif-ubpf` to re-use a part of `dpif-netdev`. 
 
-
+* The `dpif-provider` is shared between OpenFlow datapath interface and P4Runtime datapath interface. The `struct dpif_class`
+has been extended with functions dedicated only for P4 (reconfigurable) datapath. These functions should not be implemented by OpenFlow datapath interface.
 
 

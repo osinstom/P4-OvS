@@ -1136,6 +1136,10 @@
         NetFlow configuration.
       </column>
 
+      <column name="p4">
+        P4 support.
+      </column>
+
       <column name="sflow">
         sFlow(R) configuration.
       </column>
@@ -1533,6 +1537,15 @@
           The RSTP bridge port ID, as a 4-digit hex number.
         </column>
       </group>
+    </group>
+
+    <group title="P4-enabled Forwarding">
+      <column name="other_config" key="program">
+        <p>
+          Specifies a path to the target binary generated from the P4 program that
+          implements packet processing pipeline of P4 datapath.
+        </p>
+      </column>
     </group>
 
     <group title="Multicast Snooping Configuration">

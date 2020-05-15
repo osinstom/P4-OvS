@@ -104,6 +104,7 @@ lib_libopenvswitch_la_SOURCES = \
 	lib/dpif-netdev-perf.c \
 	lib/dpif-netdev-perf.h \
 	lib/dpif-provider.h \
+	lib/dpif-ubpf.c \
 	lib/dpif.c \
 	lib/dpif.h \
 	lib/heap.c \
