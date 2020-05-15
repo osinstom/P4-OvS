@@ -365,6 +365,12 @@ p4rt_run(struct p4rt *p4rt)
     return error;
 }
 
+void
+p4rt_wait(struct p4rt *p)
+{
+    p->p4rt_class->wait(p);
+}
+
 int
 p4rt_create(const char *datapath_name, const char *datapath_type,
             struct p4rt **p4rtp)
@@ -524,6 +530,19 @@ p4rt_type_run(const char *datapath_type)
     }
 
     return error;
+}
+
+void
+p4rt_type_wait(const char *datapath_type)
+{
+    const struct p4rt_class *class;
+
+    datapath_type = dpif_normalize_type(datapath_type);
+    class = p4rt_class_find__(datapath_type);
+
+    if (class->type_wait) {
+        class->type_wait(datapath_type);
+    }
 }
 
 void
