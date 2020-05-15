@@ -98,6 +98,8 @@ struct p4rt_class {
      * Returns 0 if successful, otherwise a positive errno value. */
     int (*type_run)(const char *type);
 
+    void (*type_wait)(const char *type);
+
 /* ## --------------------------- ## */
 /* ## Top-Level p4rt Functions ## */
 /* ## --------------------------- ## */
@@ -111,6 +113,8 @@ struct p4rt_class {
     void (*dealloc)(struct p4rt *p4rt);
 
     int (*run)(struct p4rt *p4rt);
+
+    void (*wait)(struct p4rt *p4rt);
 
 /* ## ---------------- ## */
 /* ## p4port Functions ## */

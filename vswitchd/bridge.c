@@ -3554,12 +3554,21 @@ bridge_wait(void)
     }
     sset_destroy(&types);
 
+    sset_init(&types);
+    p4rt_enumerate_types(&types);
+    SSET_FOR_EACH (type, &types) {
+        p4rt_type_wait(type);
+    }
+    sset_destroy(&types);
+
     if (!hmap_is_empty(&all_bridges)) {
         struct bridge *br;
 
         HMAP_FOR_EACH (br, node, &all_bridges) {
             if (br->ofproto) {
                 ofproto_wait(br->ofproto);
+            } else if (br->p4rt) {
+                p4rt_wait(br->p4rt);
             }
         }
         stats_update_wait();
