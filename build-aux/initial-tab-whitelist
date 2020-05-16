@@ -2,6 +2,7 @@
 \.m4$
 \.mk$
 \.png$
+\.gif$
 \.sln$
 ^datapath/
 ^include/linux/

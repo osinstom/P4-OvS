@@ -11,7 +11,7 @@ There must be some initial decisions made before the actual code development wil
 
 * Should the project target to become a part of the Open vSwitch project in the future? It probably depends on whether the OVS community will be welcome to accept such a significant change in the way how the OVS works.
 
-* Create the name of the project :) The "OvS.p4" name is just a draft name.
+* Create the name of the project :) The "P4-OvS" name is just a draft name.
 
 Features
 --------
@@ -24,15 +24,17 @@ The following features are considered for the first release of the project:
 
 * **uBPF datapath** - Make use of [p4c-ubpf](https://github.com/p4lang/p4c/tree/master/backends/ubpf) to generate userspace packet processing pipeline from the P4 program and create a new OVS datapath able to consume this pipeline.
 
-* **ovs-p4ctl utility** - the P4 bridge should be have its own management CLI tool. The first version should support installing and deleting P4 program plus adding/updating/removing/reading table entries.
+* **ovs-p4ctl utility** - the P4 bridge should have its own management CLI tool. The first version should support installing and deleting P4 program plus adding/updating/removing/reading table entries.
 
 * **Port forwarding** - develop mechanisms in uBPF datapath that allow to determine and enforce output port from within the P4 program.
 
 The following features should be added in the further releases of the project:
 
-* **XDP datapath** - the modular design of OvS.p4 enables integration of different datapaths. XDP should be integrated with OvS.p4 too.
+* **XDP datapath** - the modular design of P4-OvS enables integration of different datapaths. XDP should be integrated with OvS.p4 too.
 
 * **Support for Portable Switch Architecture** - p4c-ubpf does not support PSA yet. The target P4 architecture for this project should be PSA, but it needs to be implemented in p4c-ubpf.
+
+* **Enhancements to P4 compiler** - p4c-ubpf still does not support some P4 features (e.g. LPM match). P4-OvS should contribute further enhancements to p4c-ubpf.
 
 * **Performance optimizations**
 
