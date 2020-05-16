@@ -383,7 +383,7 @@ p4rt_dpif_port_del(struct p4rt *p, ofp_port_t port_no)
 {
     struct p4rt_dpif *p4rt = p4rt_dpif_cast(p);
 
-    /* FIXME: there is not translation between ofp_port <-> odp_port. */
+    /* FIXME: there is no translation between ofp_port <-> odp_port. */
     return dpif_port_del(p4rt->backer->dpif, port_no, false);
 }
 
