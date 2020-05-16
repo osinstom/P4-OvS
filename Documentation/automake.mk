@@ -53,6 +53,10 @@ DOC_SOURCE = \
 	Documentation/topics/p4/release-notes.md \
 	Documentation/topics/p4/roadmap.md \
 	Documentation/topics/p4/usage.md \
+	Documentation/topics/p4/demo.gif \
+    Documentation/topics/p4/perf-results.png \
+    Documentation/topics/p4/software-architecture.png \
+    Documentation/topics/p4/ubpf-processing.png \
 	Documentation/topics/testing.rst \
 	Documentation/topics/integration.rst \
 	Documentation/topics/language-bindings.rst \
