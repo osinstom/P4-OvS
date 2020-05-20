@@ -576,6 +576,7 @@ open_vconn__(const char *name, enum open_target target,
     bridge_path = xasprintf("%s/%s.%s", ovs_rundir(), name, suffix);
 
     ofproto_parse_name(name, &datapath_name, &datapath_type);
+
     socket_name = xasprintf("%s/%s.%s", ovs_rundir(), datapath_name, suffix);
     free(datapath_name);
     free(datapath_type);
@@ -592,7 +593,9 @@ open_vconn__(const char *name, enum open_target target,
     } else {
         free(bridge_path);
         free(socket_name);
-        ovs_fatal(0, "%s is not a bridge or a socket", name);
+        // FIXME: If bridge is of type "P4" this exception will also occur.
+        // It could be checked explicitly before whether a bridge is of type P4.
+        ovs_fatal(0, "%s is not an OpenFlow bridge or a socket", name);
     }
 
     if (target == SNOOP) {

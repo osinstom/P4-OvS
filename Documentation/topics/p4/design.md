@@ -93,6 +93,13 @@ ovs-ofctl dump-flows br0
 ERROR: OpenFlow tools are disabled for P4-capable bridge br0
 ``` 
 
+**Note!** The current version informs a user by returning the below message if `ovs-ofctl` is used for P4 bridge.
+For P4 bridge `ovs-ofctl` will just not work as P4 bridge does not expose OpenFlow interface. 
+
+```bash
+ovs-ofctl: br0 is not an OpenFlow bridge or a socket
+```
+
 The `ovs-p4ctl` should be used to manage and configure P4Runtime-based OVS bridge. The example commands could look as follows:
 
 ```bash
