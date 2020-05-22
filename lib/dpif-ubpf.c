@@ -103,6 +103,13 @@ dp_netdev_action_flow_init(struct dp_netdev_pmd_thread *pmd,
             nullable_memcpy(act + 1, &port, sizeof(port));
             break;
         }
+        case ABORT:
+        case DROP: {
+            act = xzalloc(NLA_HDRLEN);
+            act->nla_len = NLA_HDRLEN;
+            act->nla_type = OVS_ACTION_ATTR_DROP;
+            break;
+        }
     }
     act_flow->action = act;
     act_flow->action_batch = NULL; // force batch initialization
@@ -194,33 +201,27 @@ protocol_independent_processing(struct dp_netdev_pmd_thread *pmd,
         struct dp_packet *packet;
 
         DP_PACKET_BATCH_FOR_EACH (i, packet, packets_) {
-                struct tx_port *p;
+            struct tx_port *p;
 
-                struct standard_metadata std_meta = {
-                        .input_port = odp_to_u32(in_port),
-                        .output_action = ABORT,  /* ABORT packet by default. */
-                };
+            struct standard_metadata std_meta = {
+                    .input_port = odp_to_u32(in_port),
+                    .output_action = ABORT,  /* ABORT packet by default. */
+                    .output_port = 0,
+            };
 
-                ubpf_handle_packet(dp->prog->vm, &std_meta, packet);
-                switch (std_meta.output_action) {
-                    case REDIRECT: {
-                        p = tx_port_lookup(&pmd->send_port_cache, u32_to_odp(std_meta.output_port));
-                        if (OVS_LIKELY(p)) {
-                            uint32_t hash = hash_2words(std_meta.output_action,
-                                                        std_meta.output_port);
+            ubpf_handle_packet(dp->prog->vm, &std_meta, packet);
 
-                            struct dp_netdev_action_flow *act_flow;
-                            act_flow = get_dp_netdev_action_flow(pmd, hash);
-                            if (OVS_UNLIKELY(!act_flow)) {
-                                act_flow = dp_netdev_action_flow_init(pmd,
-                                        REDIRECT, &std_meta.output_port, hash);
-                            }
-                            dp_netdev_queue_action_batches(packet, act_flow);
-                        }
-                        break;
-                    }
-                }
+            /* To simplify we hash two words (output_action, output_port) regardless of the action. */
+            uint32_t hash = hash_2words(std_meta.output_action,
+                                        std_meta.output_port);
+            struct dp_netdev_action_flow *act_flow;
+            act_flow = get_dp_netdev_action_flow(pmd, hash);
+            if (OVS_UNLIKELY(!act_flow)) {
+                act_flow = dp_netdev_action_flow_init(pmd,
+                      std_meta.output_action, &std_meta.output_port, hash);
             }
+            dp_netdev_queue_action_batches(packet, act_flow);
+        }
 
         struct dp_netdev_action_flow *output_flow;
         CMAP_FOR_EACH(output_flow, node, &pmd->action_table) {
