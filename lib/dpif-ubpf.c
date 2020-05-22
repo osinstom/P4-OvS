@@ -92,7 +92,7 @@ dp_netdev_action_flow_init(struct dp_netdev_pmd_thread *pmd,
                            void *actions_args,
                            uint32_t hash)
 {
-    struct dp_netdev_action_flow *act_flow = xmalloc(sizeof *act_flow);  // TODO: must be freed somewhere later
+    struct dp_netdev_action_flow *act_flow = xmalloc(sizeof *act_flow);
     struct nlattr *act;
     switch (action_type) {
         case REDIRECT: {
@@ -163,8 +163,9 @@ packet_batch_per_action_execute(struct packet_batch_per_action *batch,
                                 struct dp_netdev_pmd_thread *pmd)
 {
     struct nlattr *act = batch->action->action;
+
     dp_netdev_execute_actions(pmd, &batch->output_batch, false, NULL,
-                              act, NLA_HDRLEN + sizeof(uint32_t)); /* FIXME: this is really temporary. */
+                              act, act->nla_len);
     dp_packet_batch_init(&batch->output_batch);
 }
 
@@ -197,38 +198,34 @@ protocol_independent_processing(struct dp_netdev_pmd_thread *pmd,
 
                 struct standard_metadata std_meta = {
                         .input_port = odp_to_u32(in_port),
+                        .output_action = ABORT,  /* ABORT packet by default. */
                 };
 
                 ubpf_handle_packet(dp->prog->vm, &std_meta, packet);
                 switch (std_meta.output_action) {
                     case REDIRECT: {
                         p = tx_port_lookup(&pmd->send_port_cache, u32_to_odp(std_meta.output_port));
-                        dp_packet_batch_add(&p->output_pkts, packet);
                         if (OVS_LIKELY(p)) {
-                            int error = netdev_send(p->port->netdev, pmd->static_tx_qid, &p->output_pkts, true);
-                        }
+                            uint32_t hash = hash_2words(std_meta.output_action,
+                                                        std_meta.output_port);
 
-                        /* TODO: output action batching. */
-                        /* uint32_t hash = hash_2words(std_meta.output_action,
-                                                    std_meta.output_port);
-
-                        struct dp_netdev_action_flow *act_flow;
-                        act_flow = get_dp_netdev_action_flow(pmd, hash);
-                        if (OVS_UNLIKELY(!act_flow)) {
-                            act_flow = dp_netdev_action_flow_init(pmd,
-                                    REDIRECT, &std_meta.output_port, hash);
+                            struct dp_netdev_action_flow *act_flow;
+                            act_flow = get_dp_netdev_action_flow(pmd, hash);
+                            if (OVS_UNLIKELY(!act_flow)) {
+                                act_flow = dp_netdev_action_flow_init(pmd,
+                                        REDIRECT, &std_meta.output_port, hash);
+                            }
+                            dp_netdev_queue_action_batches(packet, act_flow);
                         }
-                        dp_netdev_queue_action_batches(packet, act_flow); */
                         break;
                     }
                 }
             }
 
-        /* TODO: output action batching. */
-        /* struct dp_netdev_action_flow *output_flow;
+        struct dp_netdev_action_flow *output_flow;
         CMAP_FOR_EACH(output_flow, node, &pmd->action_table) {
             packet_batch_per_action_execute(output_flow->action_batch, pmd);
-        } */
+        }
 
     }
 
