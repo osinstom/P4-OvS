@@ -76,6 +76,24 @@ which should not be implemented by an OpenFlow datapath. P4-OvS implements only 
 <img src="software-architecture.png" width="500" alt="Software architecture">
 </p>
 
+## Implementation decisions
+
+### Port allocation
+
+The OpenFlow version of Open vSwitch differentiates datapath-level port numbers and OpenFlow-level port numbers. 
+The `ofproto-dpif` provides the mapping between OpenFlow ports and datapath-level ports. In case of P4 we cannot 
+do such a mapping, because a port number can be used explicitly in a P4 program, which uses port numbers at the datapath level.
+Therefore:
+
+- if a user doesn't specify a port number when adding it by using `ofport_request` a port number will be automatically allocated by 
+a datapath.
+- if a user specifies a port number P4-OvS will try to allocate the given port number in the datapath. 
+
+The natural consequence of above is that a port number must be unique across Open vSwitch. In case of classic Open vSwitch
+a port number must be unique for a given bridge. For P4-OvS a user must request port number, which is not used by any of P4 bridge.
+
+**Note!** If a user will specify a port number, which is already in use P4-OvS will return an error and will allocate a new port number.
+
 ## Usage
 
 P4-OvS follows the usage model of Open vSwitch. The bridge and ports are configured with `ovs-vsctl`. 
