@@ -120,7 +120,7 @@ $ clang-6.0 -O2 -target bpf -I../p4c/backends/ubpf/runtime -c demo.c -o demo.o
 * Add OVS bridge of type "p4":
 
 ```bash
-$ ovs-vsctl add-br br0 -- set bridge br0 datapath_type=ubpf p4=true
+$ ovs-vsctl add-br br0 -- set bridge br0 datapath_type=ubpf p4=true other_config:program="$(pwd)/demo/demo.o"
 ```
 
 * Setup network namespaces and create `veth` interfaces. The `test.sh` script automates this step:
@@ -132,8 +132,8 @@ $ ovs-vsctl add-br br0 -- set bridge br0 datapath_type=ubpf p4=true
 * Attach ports to P4 bridge:
 
 ```bash
-$ ovs-vsctl add-port br0 ovsp4-p0
-$ ovs-vsctl add-port br0 ovsp4-p1
+$ ovs-vsctl add-port br0 ovsp4-p0 -- set Interface ovsp4-p0 ofport_request=4
+$ ovs-vsctl add-port br0 ovsp4-p1 -- set Interface ovsp4-p0 ofport_request=1
 ```
 
 * Verify ports are added and no error occurred:
