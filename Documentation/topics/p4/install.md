@@ -10,10 +10,10 @@ git clone -b ubpf-forwarding https://github.com/osinstom/p4c
 
 ## Install OVS from source
 
-Clone this repository and checkout the `v0.1.0` version.
+Clone this repository and checkout the `v0.1.1` version.
 
 ```bash
-git checkout v0.1.0
+git checkout v0.1.1
 ```
 
 .. and follow the standard [installation process](./../../intro/install) for OVS:
