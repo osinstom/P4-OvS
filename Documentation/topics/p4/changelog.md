@@ -5,7 +5,17 @@ Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## Unreleased
 
-## 0.1.1 - 2020-05-30
+## 0.2.0 - 2020-06-06
+
+### Added
+
+- Initial implementation of gRPC server 
+
+### Changed
+
+- Enable per bridge P4 program (previously only one P4 bridge might be created)
+
+## 0.1.1 - 2020-05-23
 
 ### Added
 
@@ -14,7 +24,7 @@ Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Changed
 
-- Enable user-defined port numbers (current implementation relies on port allocation done by uBPF datapath)
+- Enable user-defined port numbers (previous implementation relies on port allocation done by uBPF datapath)
 
 ### Fixed
 
