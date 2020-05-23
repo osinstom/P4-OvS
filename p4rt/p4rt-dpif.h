@@ -5,6 +5,7 @@
 #include "lib/uuid.h"
 #include "ovs-thread.h"
 #include "p4rt-provider.h"
+#include "sset.h"
 
 /* All datapaths of a given type share a single dpif backer instance. */
 struct p4rt_dpif_backer {
@@ -22,6 +23,9 @@ struct p4rt_dpif {
     /* Unique identifier for this instantiation of this bridge in this running
      * process.  */
     struct uuid uuid;
+
+    /* Ports. */
+    struct sset ports;             /* Set of standard port names. */
 
 };
 

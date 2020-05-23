@@ -134,15 +134,15 @@ struct p4rt_class {
     int (*port_query_by_name)(const struct p4rt *p4rt,
                               const char *devname, struct p4rt_port *port);
 
-    /* Attempts to add 'netdev' as a port on 'p4rt'.  Returns 0 if
-     * successful, otherwise a positive errno value.  The caller should
-     * inform the implementation of the OpenFlow port through the
+    /* Attempts to add 'netdev' as a port with number `port_no' on 'p4rt'.
+     * Returns 0 if successful, otherwise a positive errno value.
+     * The caller should inform the implementation of the port through the
      * ->port_construct() method.
      *
      * It doesn't matter whether the new port will be returned by a later call
      * to ->port_poll(); the implementation may do whatever is more
      * convenient. */
-    int (*port_add)(struct p4rt *p, struct netdev *netdev);
+    int (*port_add)(struct p4rt *p, struct netdev *netdev, uint32_t port_no);
 
     /* Deletes port number 'port_no' from the datapath for 'p4rt'.  Returns
      * 0 if successful, otherwise a positive errno value. */
