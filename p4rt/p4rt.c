@@ -573,11 +573,10 @@ p4rt_get_port(const struct p4rt *p4rt, ofp_port_t port_no)
 int
 p4rt_port_add(struct p4rt *p, struct netdev *netdev, ofp_port_t *ofp_portp)
 {
-    VLOG_INFO("Wants to add port %d", ofp_portp ? *ofp_portp : 0);
     ofp_port_t ofp_port = ofp_portp ? *ofp_portp : 0xffff;  // 0xffff = OFPP_NONE
     int error;
 
-    error = p->p4rt_class->port_add(p, netdev);
+    error = p->p4rt_class->port_add(p, netdev, ofp_port);
     if (!error) {
         const char *netdev_name = netdev_get_name(netdev);
         error = update_port(p, netdev_name);
@@ -594,7 +593,6 @@ p4rt_port_add(struct p4rt *p, struct netdev *netdev, ofp_port_t *ofp_portp)
 
             if (!error) {
                 *ofp_portp = p4rt_port.port_no;
-                /* TODO: destroy p4rt port. */
                 p4rt_port_destroy(&p4rt_port);
             }
         }

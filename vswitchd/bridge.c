@@ -2186,6 +2186,7 @@ iface_do_create(const struct bridge *br,
     iface_set_netdev_mtu(iface_cfg, netdev);
 
     *ofp_portp = iface_pick_ofport(iface_cfg);
+    ofp_port_t requested_port = *ofp_portp;
     if (!br->p4) {
         error = ofproto_port_add(br->ofproto, netdev, ofp_portp);
     } else {
@@ -2194,11 +2195,13 @@ iface_do_create(const struct bridge *br,
     if (error) {
         static struct vlog_rate_limit rl = VLOG_RATE_LIMIT_INIT(1, 5);
 
-        *errp = xasprintf("could not add network device %s to %s (%s)",
-                          iface_cfg->name, br->p4 ? "p4rt" : "ofproto", ovs_strerror(error));
+        *errp = xasprintf("could not add network device %s to %s as port number %d (%s)",
+                          iface_cfg->name, br->p4 ? "p4rt" : "ofproto", requested_port,
+                          ovs_strerror(error));
         if (!VLOG_DROP_WARN(&rl)) {
             VLOG_WARN("%s", *errp);
         }
+
         goto error;
     }
 
@@ -2235,6 +2238,9 @@ iface_create(struct bridge *br, const struct ovsrec_interface *iface_cfg,
     ovs_assert(!iface_lookup(br, iface_cfg->name));
     error = iface_do_create(br, iface_cfg, &ofp_port, &netdev, &errp);
     if (error) {
+        if (br->p4 && iface_cfg->ofport_request) {
+            ovsrec_interface_update_ofport_request_delvalue(iface_cfg, *iface_cfg->ofport_request);
+        }
         iface_clear_db_record(iface_cfg, errp);
         free(errp);
         return false;

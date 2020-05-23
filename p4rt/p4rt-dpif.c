@@ -227,6 +227,8 @@ p4rt_dpif_construct(struct p4rt *p4rt_)
 
     uuid_generate(&p4rt->uuid);
 
+    sset_init(&p4rt->ports);
+
     return error;
 }
 
@@ -252,6 +254,8 @@ static void
 p4rt_dpif_destruct(struct p4rt *p4rt_, bool del)
 {
     struct p4rt_dpif *p4rt = p4rt_dpif_cast(p4rt_);
+
+    sset_destroy(&p4rt->ports);
 
     close_p4rt_dpif_backer(p4rt->backer, del);
 }
@@ -348,6 +352,10 @@ p4rt_dpif_port_query_by_name(const struct p4rt *p4rt_, const char *devname, stru
     int error;
     struct dpif_port dpif_port;
 
+    if (!sset_contains(&p4rt->ports, devname)) {
+        return ENODEV;
+    }
+
     error = dpif_port_query_by_name(p4rt->backer->dpif,
                                     devname, &dpif_port);
     if (!error) {
@@ -357,7 +365,7 @@ p4rt_dpif_port_query_by_name(const struct p4rt *p4rt_, const char *devname, stru
 }
 
 static int
-p4rt_dpif_port_add(struct p4rt *p, struct netdev *netdev)
+p4rt_dpif_port_add(struct p4rt *p, struct netdev *netdev, uint32_t requested_port)
 {
     struct p4rt_dpif *p4rt = p4rt_dpif_cast(p);
     const char *devname = netdev_get_name(netdev);
@@ -367,13 +375,18 @@ p4rt_dpif_port_add(struct p4rt *p, struct netdev *netdev)
     dp_port_name = netdev_vport_get_dpif_port(netdev, namebuf, sizeof namebuf);
     if (!dpif_port_exists(p4rt->backer->dpif, dp_port_name)) {
         odp_port_t port_no = ODPP_NONE;
-        int error;
+        if (requested_port != OFPP_NONE) {
+            port_no = requested_port;
+        }
 
+        int error;
         error = dpif_port_add(p4rt->backer->dpif, netdev, &port_no);
         if (error) {
             return error;
         }
     }
+
+    sset_add(&p4rt->ports, devname);
 
     return 0;
 }
@@ -383,7 +396,6 @@ p4rt_dpif_port_del(struct p4rt *p, ofp_port_t port_no)
 {
     struct p4rt_dpif *p4rt = p4rt_dpif_cast(p);
 
-    /* FIXME: there is no translation between ofp_port <-> odp_port. */
     return dpif_port_del(p4rt->backer->dpif, port_no, false);
 }
 
