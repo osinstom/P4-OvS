@@ -415,8 +415,6 @@ p4rt_create(const char *datapath_name, const char *datapath_type,
         return error;
     }
 
-    //init_ports(p4rt);
-
     *p4rtp = p4rt;
     return error;
 }
@@ -426,10 +424,8 @@ p4rt_initialize_datapath(struct p4rt *p, char *filename)
 {
     int error = 0;
 
-    /* TODO: refactor this function and use `ovsthread_once` to initialzie datapath only once. */
     if (p->prog) {
-        VLOG_WARN_RL(&rl, "P4 datapath of %s is already initialized with P4 program. ",
-                     p->name);
+        /* P4 datapath is already initialized with P4 program */
         return error;
     }
 
