@@ -1,6 +1,7 @@
 #ifndef P4RT_PROVIDER_H
 #define P4RT_PROVIDER_H 1
 
+#include <PI/p4info.h>
 #include "openvswitch/hmap.h"
 
 struct p4rt {
@@ -9,6 +10,9 @@ struct p4rt {
 
     char *type;                 /* Datapath type. */
     char *name;                 /* Datapath name. */
+
+    pi_p4info_t *p4info;        /* P4Info describing a P4 program. */
+    uint64_t dev_id;            /* Device ID used by P4Runtime to identify bridge. */
 
     /* Datapath. */
     struct program *prog;

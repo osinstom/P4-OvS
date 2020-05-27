@@ -3,6 +3,7 @@ bin_PROGRAMS += \
 	utilities/ovs-testcontroller \
 	utilities/ovs-dpctl \
 	utilities/ovs-ofctl \
+	utilities/ovs-p4ctl \
 	utilities/ovs-vsctl
 bin_SCRIPTS += utilities/ovs-docker \
 	utilities/ovs-pki \
@@ -117,6 +118,11 @@ utilities_ovs_ofctl_LDADD = \
 
 utilities_ovs_vsctl_SOURCES = utilities/ovs-vsctl.c
 utilities_ovs_vsctl_LDADD = lib/libopenvswitch.la
+
+utilities_ovs_p4ctl_SOURCES = utilities/ovs-p4ctl.c
+utilities_ovs_p4ctl_LDADD = \
+ 	p4rt/libp4rt.la \
+ 	lib/libopenvswitch.la
 
 if LINUX
 noinst_PROGRAMS += utilities/nlmon

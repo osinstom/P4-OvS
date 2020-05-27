@@ -4,6 +4,7 @@
 #include "openvswitch/thread.h"
 #include "openvswitch/types.h"
 #include "netdev.h"
+#include "p4rt-switch.h"
 
 #ifdef  __cplusplus
 extern "C" {
@@ -27,6 +28,9 @@ const char * p4rt_port_open_type(const struct p4rt *p4rt, const char *port_type)
 int p4rt_run(struct p4rt *);
 int p4rt_create(const char *datapath, const char *datapath_type, struct p4rt **p4rt);
 int p4rt_port_add(struct p4rt *p, struct netdev *netdev, ofp_port_t *ofp_portp);
+
+/* unixctl commands */
+int p4rt_query_switch_features(const char *name, struct p4rt_switch_features *features);
 
 #ifdef  __cplusplus
 }
