@@ -576,6 +576,7 @@ bridge_exit(bool delete_datapath)
         bridge_destroy(br, delete_datapath);
     }
 
+    p4rt_deinit();
     ovsdb_idl_destroy(idl);
 }
 
@@ -946,6 +947,8 @@ bridge_reconfigure(const struct ovsrec_open_vswitch *ovs_cfg)
                 VLOG_ERR("failed to create bridge %s: %s", br->name,
                          ovs_strerror(error));
                 bridge_destroy(br, true);
+            } else {
+                bridge_configure_p4_datapath(br);
             }
         }
     }
@@ -1012,8 +1015,6 @@ bridge_reconfigure(const struct ovsrec_open_vswitch *ovs_cfg)
             bridge_configure_dp_desc(br);
             bridge_configure_serial_desc(br);
             bridge_configure_aa(br);
-        } else {
-            bridge_configure_p4_datapath(br);
         }
     }
     free(managers);

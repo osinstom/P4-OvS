@@ -145,6 +145,7 @@ AC_CONFIG_FILES([
     lib/string.h
     ovsdb/libovsdb.sym
     ofproto/libofproto.sym
+    p4rt/libp4rt.sym
     lib/libsflow.sym
     lib/libopenvswitch.sym
     vtep/libvtep.sym])
@@ -202,6 +203,7 @@ AC_CONFIG_FILES(tests/atlocal)
 AC_CONFIG_FILES(lib/libopenvswitch.pc)
 AC_CONFIG_FILES(lib/libsflow.pc)
 AC_CONFIG_FILES(ofproto/libofproto.pc)
+AC_CONFIG_FILES(p4rt/libp4rt.pc)
 AC_CONFIG_FILES(ovsdb/libovsdb.pc)
 AC_CONFIG_FILES(include/openvswitch/version.h)
 

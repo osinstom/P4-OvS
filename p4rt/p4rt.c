@@ -1,10 +1,16 @@
 #include <config.h>
 #include <errno.h>
 #include <string.h>
+#include <PI/proto/pi_server.h>
+#include <PI/p4info.h>
+#include <PI/int/pi_int.h>
+#include <PI/pi.h>
+#include <PI/target/pi_imp.h>
 
 #include "netdev.h"
 #include "p4rt.h"
 #include "p4rt-provider.h"
+
 #include "openvswitch/hmap.h"
 #include "hash.h"
 #include "openvswitch/vlog.h"
@@ -51,6 +57,19 @@ static void p4rt_destroy__(struct p4rt *p);
 /* ## --------------------------------------- ## */
 /* ## Private functions used locally by p4rt. ## */
 /* ## --------------------------------------- ## */
+
+static struct p4rt *
+p4rt_lookup_by_dev_id(uint64_t dev_id)
+{
+    struct p4rt *p4rt;
+
+    HMAP_FOR_EACH (p4rt, hmap_node, &all_p4rts) {
+        if (p4rt->dev_id == dev_id) {
+            return p4rt;
+        }
+    }
+    return NULL;
+}
 
 static const struct p4rt_class *
 p4rt_class_find__(const char *type)
@@ -267,8 +286,7 @@ p4port_install(struct p4rt *p4rt, struct netdev *netdev, ofp_port_t port_no)
     VLOG_WARN_RL(&rl, "%s: could not add port %s (%s)",
                  p4rt->name, netdev_name, ovs_strerror(error));
     if (p4port) {
-        /* FIXME: uncomment. */
-        /* p4port_destroy__(p4port); */
+        p4port_destroy__(p4port);
     } else {
         netdev_close(netdev);
     }
@@ -350,6 +368,18 @@ p4rt_init()
     for (i = 0; i < n_p4rt_classes; i++) {
         p4rt_classes[i]->init();
     }
+
+    /* FIXME: Workaround as we cannot call DeviceMgr::init().
+     * Remove it once this issue: https://github.com/p4lang/PI/issues/512 will be solved. */
+    pi_init(256, NULL);
+    PIGrpcServerRun();
+}
+
+void
+p4rt_deinit()
+{
+    PIGrpcServerShutdown();
+    PIGrpcServerCleanup();
 }
 
 int
@@ -401,6 +431,10 @@ p4rt_create(const char *datapath_name, const char *datapath_type,
     memset(p4rt, 0, sizeof *p4rt);
     p4rt->p4rt_class = class;
     p4rt->name = xstrdup(datapath_name);
+
+    p4rt->p4info = NULL;
+    /* TODO: 0 is hardcoded, need to assign device id dynamically. */
+    p4rt->dev_id = 0;
     p4rt->type = xstrdup(datapath_type);
     hmap_insert(&all_p4rts, &p4rt->hmap_node,
     hash_string(p4rt->name, 0));
@@ -627,4 +661,107 @@ p4rt_prog_del(struct p4rt *p)
 {
     struct program *prog = p->prog;
     p4rt_program_destroy(prog);
+}
+
+/* ## ------------- ## */
+/* ## PI functions. ## */
+/* ## ------------- ## */
+
+
+pi_status_t _pi_assign_device(pi_dev_id_t dev_id, const pi_p4info_t *p4info,
+                              pi_assign_extra_t *extra) {
+    VLOG_INFO("Assigning device: %d", dev_id);
+
+    struct p4rt *p4rt = p4rt_lookup_by_dev_id(dev_id);
+
+    if (!p4rt) {
+        /* P4 Device does not exist. */
+        return PI_STATUS_DEV_NOT_ASSIGNED;
+    }
+
+    ovs_mutex_lock(&p4rt_mutex);
+    p4rt->p4info = p4info;
+    ovs_mutex_unlock(&p4rt_mutex);
+
+    return PI_STATUS_SUCCESS;
+}
+
+pi_status_t _pi_update_device_start(pi_dev_id_t dev_id,
+                                    const pi_p4info_t *p4info,
+                                    const char *device_data,
+                                    size_t device_data_size) {
+    VLOG_INFO("Injecting config (size %d) %s", device_data_size, device_data);
+    int error;
+
+    struct p4rt *p4rt = p4rt_lookup_by_dev_id(dev_id);
+    if (!p4rt) {
+        /* P4 Device does not exist. */
+        return PI_STATUS_DEV_OUT_OF_RANGE;
+    }
+    struct program *prog;
+    if (!p4rt->prog) {
+        prog = p4rt->p4rt_class->program_alloc();
+        if (!prog) {
+            error = ENOMEM;
+            goto error;
+        }
+    } else {
+        prog = p4rt->prog;
+    }
+
+    *CONST_CAST(struct p4rt **, &prog->p4rt) = p4rt;
+    prog->data = device_data;
+    prog->data_len = device_data_size;
+
+    error = p4rt->p4rt_class->program_insert(prog);
+    if (error) {
+        goto error;
+    }
+
+    p4rt->prog = prog;
+
+    VLOG_INFO("P4 datapath initialized!");
+
+    return PI_STATUS_SUCCESS;
+
+error:
+    VLOG_WARN_RL(&rl, "failed to initialize P4 datapath of device %d (%s)",
+                 dev_id, ovs_strerror(error));
+    if (!p4rt->prog && prog) {
+        p4rt->p4rt_class->prog_dealloc(prog);
+    }
+
+    return PI_STATUS_TARGET_ERROR;
+}
+
+/* ## ------------------------------- ## */
+/* ## Functions exposed to ovs-p4ctl. ## */
+/* ## ------------------------------- ## */
+
+static struct p4rt *
+p4rt_lookup(const char *name)
+{
+    struct p4rt *p4rt;
+
+    HMAP_FOR_EACH_WITH_HASH (p4rt, hmap_node, hash_string(name, 0),
+                             &all_p4rts) {
+        if (!strcmp(p4rt->name, name)) {
+            return p4rt;
+        }
+    }
+    return NULL;
+}
+
+int
+p4rt_query_switch_features(const char *name, struct p4rt_switch_features *features)
+{
+    struct p4rt *p4rt = p4rt_lookup(name);
+    if (!p4rt) {
+        return ENODEV;
+    }
+
+    features->n_tables = 0; /* TODO: query no of tables from datapath or save it while inserting new program */
+    features->n_ports = hmap_count(&p4rt->ports);
+
+    return 0;
 }
