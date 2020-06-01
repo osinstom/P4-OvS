@@ -140,6 +140,41 @@ function install_dpdk()
     echo "${DPDK_VER}" > ${VERSION_FILE}
 }
 
+function install_pi()
+{
+    pushd pi_dir
+
+    git clone https://github.com/google/protobuf.git
+    pushd protobuf
+    git checkout tags/v3.6.1
+    ./autogen.sh
+    ./configure
+    make -j4
+    sudo make install
+    sudo ldconfig
+    popd
+
+    git clone https://github.com/google/grpc.git
+    pushd grpc
+    git checkout tags/v1.17.2
+    git submodule update --init --recursive
+    make -j4
+    sudo make install
+    sudo ldconfig
+    popd
+
+    git clone https://github.com/p4lang/PI.git
+    pushd PI
+    git submodule update --init --recursive
+    ./autogen.sh
+    ./configure --with-proto
+    make -j4
+    sudo make install
+    popd
+
+    popd
+}
+
 function configure_ovs()
 {
     ./boot.sh
@@ -177,6 +212,10 @@ if [ "$DPDK" ] || [ "$DPDK_SHARED" ]; then
         # Disregard cast alignment errors until DPDK is fixed
         CFLAGS_FOR_OVS="${CFLAGS_FOR_OVS} -Wno-cast-align"
     fi
+fi
+
+if [ "$WITH_P4" ]; then
+    install_pi
 fi
 
 if [ "$CC" = "clang" ]; then

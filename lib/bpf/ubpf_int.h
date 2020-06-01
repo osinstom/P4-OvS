@@ -3,7 +3,7 @@
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * You may obtain a copy of the License at:
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
@@ -77,7 +77,7 @@ struct ubpf_map;
 
 struct ubpf_map_ops {
     unsigned int (*map_size)(const struct ubpf_map *map);
-    unsigned int (*map_dump)(const struct ubpf_map *map, void *data);
+    unsigned int (*map_dump)(const struct ubpf_map *map, char *data);
     void *(*map_lookup)(const struct ubpf_map *map, const void *key);
     int (*map_update)(struct ubpf_map *map, const void *key, void *value);
     int (*map_delete)(struct ubpf_map *map, const void *key);

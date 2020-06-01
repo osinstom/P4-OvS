@@ -894,7 +894,7 @@ int dpif_meter_del(struct dpif *, ofproto_meter_id meter_id,
 
 /* P4 datapath. */
 struct dpif_prog {
-    uint32_t id;
+    const ovs_be16 id;
     char *data;
     size_t data_len;
 };

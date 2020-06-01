@@ -1,6 +1,21 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at:
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 #include <config.h>
 #include <errno.h>
 
+#include "bpf.h"
 #include "dpif-netdev.h"
 #include "dpif-provider.h"
 #include "netdev-vport.h"
@@ -9,7 +24,6 @@
 #include "openvswitch/util.h"
 #include "openvswitch/vlog.h"
 #include "ovs-atomic.h"
-#include "bpf.h"
 
 VLOG_DEFINE_THIS_MODULE(dpif_ubpf);
 
@@ -18,7 +32,7 @@ VLOG_DEFINE_THIS_MODULE(dpif_ubpf);
 /* ## --------------------------------------- ## */
 
 struct dp_prog {
-    uint16_t id;
+    ovs_be16 id;
     struct ubpf_vm *vm;
 };
 
@@ -93,7 +107,7 @@ dp_netdev_action_flow_init(struct dp_netdev_pmd_thread *pmd,
                            uint32_t hash)
 {
     struct dp_netdev_action_flow *act_flow = xmalloc(sizeof *act_flow);
-    struct nlattr *act;
+    struct nlattr *act = NULL;
     switch (action_type) {
         case REDIRECT: {
             uint32_t port = *((uint32_t *)actions_args);
@@ -124,8 +138,7 @@ static inline struct dp_netdev_action_flow *
 get_dp_netdev_action_flow(struct dp_netdev_pmd_thread *pmd,
                           uint32_t hash)
 {
-    struct cmap_node *node;
-    struct dp_netdev_action_flow *act_flow;
+    const struct cmap_node *node;
 
     node = cmap_find(&pmd->action_table, hash);
     if (OVS_LIKELY(node != NULL)) {
@@ -171,23 +184,13 @@ packet_batch_per_action_execute(struct packet_batch_per_action *batch,
 {
     struct nlattr *act = batch->action->action;
 
+    if (OVS_UNLIKELY(!act)) {
+        return;
+    }
+
     dp_netdev_execute_actions(pmd, &batch->output_batch, false, NULL,
                               act, act->nla_len);
     dp_packet_batch_init(&batch->output_batch);
-}
-
-static struct tx_port *
-tx_port_lookup(const struct hmap *hmap, odp_port_t port_no)
-{
-    struct tx_port *tx;
-
-    HMAP_FOR_EACH_IN_BUCKET (tx, node, hash_int(odp_to_u32(port_no), 0), hmap) {
-        if (tx->port->port_no == port_no) {
-            return tx;
-        }
-    }
-
-    return NULL;
 }
 
 static inline void
@@ -201,7 +204,6 @@ protocol_independent_processing(struct dp_netdev_pmd_thread *pmd,
         struct dp_packet *packet;
 
         DP_PACKET_BATCH_FOR_EACH (i, packet, packets_) {
-            struct tx_port *p;
 
             struct standard_metadata std_meta = {
                     .input_port = odp_to_u32(in_port),
@@ -235,7 +237,7 @@ protocol_independent_processing(struct dp_netdev_pmd_thread *pmd,
 static void
 process_ubpf(struct dp_netdev_pmd_thread *pmd,
              struct dp_packet_batch *packets,
-             bool md_is_valid, odp_port_t port_no)
+             bool md_is_valid OVS_UNUSED, odp_port_t port_no)
 {
     protocol_independent_processing(pmd, packets, port_no);
 }
@@ -328,15 +330,15 @@ dpif_ubpf_close(struct dpif *dpif)
 }
 
 static int
-dpif_ubpf_set_config(struct dpif *dpif, const struct smap *other_config)
+dpif_ubpf_set_config(struct dpif *dpif OVS_UNUSED, const struct smap *other_config OVS_UNUSED)
 {
     /* TODO: Set uBPF-specific and netdev configuration. */
     return 0;
 }
 
 static int
-dpif_ubpf_port_set_config(struct dpif *dpif, odp_port_t port_no,
-                          const struct smap *cfg)
+dpif_ubpf_port_set_config(struct dpif *dpif OVS_UNUSED, odp_port_t port_no OVS_UNUSED,
+                          const struct smap *cfg OVS_UNUSED)
 {
     /* TODO: Set uBPF-specific and netdev configuration for ports. */
     return 0;
@@ -375,7 +377,7 @@ dp_prog_destroy_(struct dp_prog *prog)
 }
 
 static void
-dp_prog_unset(struct dpif *dpif, uint32_t prog_id)
+dp_prog_unset(struct dpif *dpif, uint32_t prog_id OVS_UNUSED)
 {
     struct dp_ubpf *dp = dpif_ubpf_cast(dpif)->dp;
 

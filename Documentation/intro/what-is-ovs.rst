@@ -36,6 +36,6 @@ Overview
 .. NOTE(stephenfin): The below start-after/end-before may need to be updated
    if the README is modified.
 
-.. include:: ../../README.rst
+.. include:: ../../README-original.rst
    :start-after: What is Open vSwitch?
    :end-before: What other documentation is available?

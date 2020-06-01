@@ -16,12 +16,14 @@
 #include <config.h>
 #include <getopt.h>
 
+#include "fatal-signal.h"
 #include "lib/command-line.h"
 #include "lib/daemon.h"
 #include "openvswitch/dynamic-string.h"
 #include "openvswitch/vlog.h"
 #include "openvswitch/util.h"
 #include "p4rt/p4rt-switch.h"
+#include "util.h"
 
 VLOG_DEFINE_THIS_MODULE(p4ctl);
 
@@ -31,7 +33,7 @@ int
 main(int argc, char *argv[])
 {
     struct ovs_cmdl_context ctx = { .argc = 0, };
-//    set_program_name(argv[0]);
+    set_program_name(argv[0]);
     service_start(&argc, &argv);
 
     fatal_ignore_sigpipe();
@@ -46,22 +48,9 @@ main(int argc, char *argv[])
 }
 
 static void
-p4ctl_show(struct ovs_cmdl_context *ctx)
+p4ctl_show(struct ovs_cmdl_context *ctx OVS_UNUSED)
 {
-    const char *bridge_name = ctx->argv[1];
-    int error;
-    printf("Running p4ctl for %s\n", bridge_name);
-    struct p4rt_switch_features *features = xmalloc(sizeof *features);
 
-    error = p4rt_query_switch_features(bridge_name, features);
-    if (error) {
-        free(features);
-        ovs_fatal(0, "%s %s", ovs_strerror(error), bridge_name);
-    }
-
-    printf("No of ports: %d, no of tables: %d", features->n_ports, features->n_tables);
-
-    free(features);
 }
 
 static const struct ovs_cmdl_command all_commands[] = {

@@ -3,7 +3,7 @@
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * You may obtain a copy of the License at:
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
@@ -68,7 +68,7 @@ ubpf_hashmap_size(const struct ubpf_map *map)
 }
 
 unsigned int
-ubpf_hashmap_dump(const struct ubpf_map *map, void *data)
+ubpf_hashmap_dump(const struct ubpf_map *map, char *data)
 {
     struct hashmap *hmap = map->data;
     const struct ovs_list *head;
@@ -82,11 +82,11 @@ ubpf_hashmap_dump(const struct ubpf_map *map, void *data)
 
         LIST_FOR_EACH(element, hash_node, head) {
             if (element != NULL) {
-                void *key_pointer = element->key;
+                char *key_pointer = element->key;
                 memcpy(data, key_pointer, key_size);
                 data += key_size;
 
-                void *value_pointer = key_pointer + key_rounded_size;
+                char *value_pointer = key_pointer + key_rounded_size;
                 memcpy(data, value_pointer, value_size);
                 data += value_size;
             }

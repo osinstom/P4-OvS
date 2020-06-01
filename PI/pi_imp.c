@@ -11,14 +11,15 @@
 
 VLOG_DEFINE_THIS_MODULE(pi_imp);
 
-pi_status_t _pi_init(int *abi_version, void *extra) {
+pi_status_t _pi_destroy(void);
+
+pi_status_t _pi_init(int *abi_version, void *extra OVS_UNUSED) {
     *abi_version = PI_ABI_VERSION;
     return PI_STATUS_SUCCESS;
 }
 
 pi_status_t _pi_update_device_end(pi_dev_id_t dev_id) {
     (void)dev_id;
-    VLOG_INFO("Injecting config: %d", dev_id);
     return PI_STATUS_SUCCESS;
 }
 
@@ -28,7 +29,7 @@ pi_status_t _pi_remove_device(pi_dev_id_t dev_id) {
     return PI_STATUS_SUCCESS;
 }
 
-pi_status_t _pi_destroy() {
+pi_status_t _pi_destroy(void) {
 
     return PI_STATUS_SUCCESS;
 }

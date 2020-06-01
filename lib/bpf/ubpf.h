@@ -3,7 +3,7 @@
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * You may obtain a copy of the License at:
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
@@ -37,12 +37,12 @@ struct standard_metadata {
 };
 
 struct ubpf_vm;
-typedef uint64_t (*ubpf_jit_fn)(void *mem, size_t mem_len);
+typedef uint64_t (*ubpf_jit_fn)(void *mem, struct standard_metadata *);
 
 struct ubpf_map;
 struct ubpf_func_proto;
 
-struct ubpf_vm *ubpf_create(const ovs_be16 filter_prog);
+struct ubpf_vm *ubpf_create(const ovs_be16 prog);
 void ubpf_destroy(struct ubpf_vm *vm);
 
 /*

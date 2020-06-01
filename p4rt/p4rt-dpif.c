@@ -26,7 +26,7 @@ struct p4port_dpif {
 struct program_dpif {
     struct program up;
 
-    uint32_t id;
+    ovs_be16 id;
     /* TODO: other datapath-specific fields. */
 };
 
@@ -37,10 +37,7 @@ struct program_dpif {
 static struct shash p4rt_dpif_classes = SHASH_INITIALIZER(&p4rt_dpif_classes);
 
 /* All existing p4rt instances, indexed by p4rt->up.type. */
-struct shash all_p4rt_dpif_backers = SHASH_INITIALIZER(&all_p4rt_dpif_backers);
-
-/* Protects 'p4rt_dpif_classes'. */
-static struct ovs_mutex p4rt_dpif_mutex = OVS_MUTEX_INITIALIZER;
+static struct shash all_p4rt_dpif_backers = SHASH_INITIALIZER(&all_p4rt_dpif_backers);
 
 /* ## --------------------------- ## */
 /* ## p4rt-dpif helper functions. ## */
@@ -50,13 +47,6 @@ static inline struct p4port_dpif *
 p4port_dpif_cast(const struct p4port *p4port)
 {
     return p4port ? CONTAINER_OF(p4port, struct p4port_dpif, up) : NULL;
-}
-
-struct p4port_dpif *
-ofp_port_to_p4port(const struct p4rt_dpif *p4rt, ofp_port_t ofp_port)
-{
-    struct p4port *p4port = p4rt_get_port(&p4rt->up, ofp_port);
-    return p4port ? p4port_dpif_cast(p4port) : NULL;
 }
 
 static inline struct p4rt_dpif *
@@ -73,11 +63,11 @@ p4program_dpif_cast(const struct program *prog)
 }
 
 static void
-p4rt_port_from_dpif_port(struct p4rt_dpif *p4rt, struct p4rt_port *port, struct dpif_port *dpif_port)
+p4rt_port_from_dpif_port(struct p4rt_dpif *p4rt OVS_UNUSED, struct p4rt_port *port, struct dpif_port *dpif_port)
 {
     port->name = dpif_port->name;
     port->type = dpif_port->type;
-    port->port_no = dpif_port->port_no;
+    port->port_no = u16_to_ofp(odp_to_u32(dpif_port->port_no));
 }
 
 
@@ -97,15 +87,9 @@ dp_initialize(void)
 }
 
 static void
-p4rt_dpif_init()
+p4rt_dpif_init(void)
 {
     dp_initialize();
-}
-
-static const char *
-p4rt_dpif_port_open_type(const char *datapath_type, const char *port_type)
-{
-    /* TODO: empty now, should be implemented in the next version. */
 }
 
 static void
@@ -117,7 +101,7 @@ p4rt_dpif_enumerate_types(struct sset *types)
 }
 
 static int
-p4rt_dpif_enumerate_names(const char *type, struct sset *names)
+p4rt_dpif_enumerate_names(const char *type OVS_UNUSED, struct sset *names)
 {
     sset_clear(names);
     sset_add(names, "ubpf");  /* FIXME: hardcoded "ubpf" as only one dpif is supported now. */
@@ -164,14 +148,14 @@ p4rt_dpif_type_wait(const char *type)
     if (!backer) {
         /* This is not necessarily a problem, since backers are only
          * created on demand. */
-        return 0;
+        return;
     }
 
     dpif_wait(backer->dpif);
 }
 
 static struct p4rt *
-p4rt_dpif_alloc()
+p4rt_dpif_alloc(void)
 {
     struct p4rt_dpif *p4rt = xzalloc(sizeof *p4rt);
     return &p4rt->up;
@@ -306,8 +290,6 @@ p4rt_dpif_port_destruct(struct p4port *port_, bool del)
 {
     struct p4port_dpif *port = p4port_dpif_cast(port_);
     struct p4rt_dpif *p4rt = p4rt_dpif_cast(port->up.p4rt);
-    const char *devname = netdev_get_name(port->up.netdev);
-    const char *netdev_type = netdev_get_type(port->up.netdev);
     char namebuf[NETDEV_VPORT_NAME_BUFSIZE];
     const char *dp_port_name;
 
@@ -334,13 +316,13 @@ p4rt_dpif_port_dealloc(struct p4port *p4port)
 }
 
 static int
-p4rt_dpif_run(struct p4rt *p4rt_)
+p4rt_dpif_run(struct p4rt *p4rt_ OVS_UNUSED)
 {
     return 0;
 }
 
 static void
-p4rt_dpif_wait(struct p4rt *p4rt_)
+p4rt_dpif_wait(struct p4rt *p4rt_ OVS_UNUSED)
 {
 
 }
@@ -365,7 +347,7 @@ p4rt_dpif_port_query_by_name(const struct p4rt *p4rt_, const char *devname, stru
 }
 
 static int
-p4rt_dpif_port_add(struct p4rt *p, struct netdev *netdev, uint32_t requested_port)
+p4rt_dpif_port_add(struct p4rt *p, struct netdev *netdev, uint16_t requested_port)
 {
     struct p4rt_dpif *p4rt = p4rt_dpif_cast(p);
     const char *devname = netdev_get_name(netdev);
@@ -375,8 +357,8 @@ p4rt_dpif_port_add(struct p4rt *p, struct netdev *netdev, uint32_t requested_por
     dp_port_name = netdev_vport_get_dpif_port(netdev, namebuf, sizeof namebuf);
     if (!dpif_port_exists(p4rt->backer->dpif, dp_port_name)) {
         odp_port_t port_no = ODPP_NONE;
-        if (requested_port != OFPP_NONE) {
-            port_no = requested_port;
+        if (u16_to_ofp(requested_port) != OFPP_NONE) {
+            port_no = u32_to_odp(requested_port);
         }
 
         int error;
@@ -392,15 +374,15 @@ p4rt_dpif_port_add(struct p4rt *p, struct netdev *netdev, uint32_t requested_por
 }
 
 static int
-p4rt_dpif_port_del(struct p4rt *p, ofp_port_t port_no)
+p4rt_dpif_port_del(struct p4rt *p, uint16_t port_no)
 {
     struct p4rt_dpif *p4rt = p4rt_dpif_cast(p);
 
-    return dpif_port_del(p4rt->backer->dpif, port_no, false);
+    return dpif_port_del(p4rt->backer->dpif, u32_to_odp(port_no), false);
 }
 
 static struct program *
-p4rt_dpif_prog_alloc()
+p4rt_dpif_prog_alloc(void)
 {
     struct program_dpif *program = xzalloc(sizeof *program);
     return &program->up;
@@ -433,7 +415,6 @@ static void
 p4rt_dpif_prog_delete(struct program *prog)
 {
     struct p4rt_dpif *p4rt = p4rt_dpif_cast(prog->p4rt);
-    struct program_dpif *prog_dpif = p4program_dpif_cast(prog);
     struct dpif *dpif = p4rt->backer->dpif;
 
     dpif->dpif_class->dp_prog_unset(dpif, 0);  /* FIXME: hardcoded prog id. */

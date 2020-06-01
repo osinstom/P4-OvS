@@ -3,7 +3,7 @@
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * You may obtain a copy of the License at:
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
@@ -16,11 +16,11 @@
 #ifndef UBPF_HASHMAP_H
 #define UBPF_HASHMAP_H 1
 
-#include "util.h"
 #include "openvswitch/list.h"
 
 #include "lookup3.h"
 #include "ubpf_int.h"
+#include "util.h"
 
 #define __round_mask(x, y) ((__typeof__(x))((y)-1))
 #define round_up(x, y) ((((x)-1) | __round_mask(x, y))+1)
@@ -39,7 +39,7 @@
 
 void *ubpf_hashmap_create(const struct ubpf_map_def *map_def);
 unsigned int ubpf_hashmap_size(const struct ubpf_map *map);
-unsigned int ubpf_hashmap_dump(const struct ubpf_map *map, void *data);
+unsigned int ubpf_hashmap_dump(const struct ubpf_map *map, char *data);
 void *ubpf_hashmap_lookup(const struct ubpf_map *map, const void *key);
 int ubpf_hashmap_update(struct ubpf_map *map, const void *key, void *value);
 int ubpf_hashmap_delete(struct ubpf_map *map, const void *key);

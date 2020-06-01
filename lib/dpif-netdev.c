@@ -1218,6 +1218,8 @@ construct_dp_netdev(const char *name, const struct dpif_class *class,
     }
 
     dp->last_tnl_conf_seq = seq_read(tnl_conf_seq);
+
+    return 0;
 }
 
 static int
@@ -7531,6 +7533,8 @@ const struct dpif_class dpif_netdev_class = {
     dpif_netdev_meter_set,
     dpif_netdev_meter_get,
     dpif_netdev_meter_del,
+    NULL,
+    NULL,
 };
 
 static void

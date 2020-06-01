@@ -41,16 +41,9 @@ struct ovs_mutex p4rt_mutex = OVS_MUTEX_INITIALIZER;
 /* ## Prototypes for functions. ## */
 /* ## ------------------------- ## */
 
-void p4rt_init();
-int p4rt_create(const char *datapath_name, const char *datapath_type,
-        struct p4rt **p4rtp);
-int p4rt_type_run(const char *datapath_type);
-void p4rt_destroy(struct p4rt *p, bool del);
-struct p4port *p4rt_get_port(const struct p4rt *p4rt, ofp_port_t port_no);
-int p4rt_port_add(struct p4rt *p, struct netdev *netdev, ofp_port_t *ofp_portp);
-int p4rt_port_del(struct p4rt *p, const char *name);
 
 struct p4port *p4rt_get_port(const struct p4rt *p4rt, ofp_port_t port_no);
+int p4rt_class_register(const struct p4rt_class *new_class);
 static void p4port_destroy(struct p4port *, bool del);
 static void p4rt_destroy__(struct p4rt *p);
 
@@ -165,14 +158,14 @@ p4rt_port_query_by_name(struct p4rt *p4rt, const char *name, struct p4rt_port *p
 }
 
 static ofp_port_t
-alloc_p4rt_port(struct p4rt *p4rt, const char *netdev_name)
+alloc_p4rt_port(struct p4rt *p4rt OVS_UNUSED, const char *netdev_name OVS_UNUSED)
 {
     /* TODO: get next port number from the pool. */
-    return 1;
+    return u16_to_ofp(1);
 }
 
 static int
-p4rt_port_open(struct p4rt *p4rt,
+p4rt_port_open(struct p4rt *p4rt OVS_UNUSED,
                struct p4rt_port *p4port,
                struct netdev **p_netdev)
 {
@@ -337,7 +330,7 @@ p4rt_enumerate_names(const char *type, struct sset *names)
 }
 
 const char *
-p4rt_port_open_type(const struct p4rt *p4rt, const char *port_type)
+p4rt_port_open_type(const struct p4rt *p4rt OVS_UNUSED, const char *port_type)
 {
     /* FIXME: So far, P4rt switch can only be implemented in userspace. */
     if (!strcmp(port_type, "internal")) {
@@ -361,7 +354,7 @@ p4rt_enumerate_types(struct sset *types)
 }
 
 void
-p4rt_init()
+p4rt_init(void)
 {
     p4rt_class_register(&p4rt_dpif_class);
     size_t i;
@@ -376,7 +369,7 @@ p4rt_init()
 }
 
 void
-p4rt_deinit()
+p4rt_deinit(void)
 {
     PIGrpcServerShutdown();
     PIGrpcServerCleanup();
@@ -454,9 +447,10 @@ p4rt_create(const char *datapath_name, const char *datapath_type,
 }
 
 int
-p4rt_initialize_datapath(struct p4rt *p, char *filename)
+p4rt_initialize_datapath(struct p4rt *p, const char *filename)
 {
     int error = 0;
+    struct program *prog = NULL;
 
     if (p->prog) {
         /* P4 datapath is already initialized with P4 program */
@@ -476,14 +470,14 @@ p4rt_initialize_datapath(struct p4rt *p, char *filename)
     size_t length = ftell(stream);
     fseek(stream, 0L, SEEK_SET);
 
-    char program[length];
+    char *program = xzalloc(length);
     if (fread(program, sizeof(char), length, stream) != length) {
         error = ferror(stream) ? errno : EOF;
         goto error;
     }
     fclose(stream);
 
-    struct program *prog = p->p4rt_class->program_alloc();
+    prog = p->p4rt_class->program_alloc();
     if (!prog) {
         error = ENOMEM;
         goto error;
@@ -603,10 +597,10 @@ p4rt_get_port(const struct p4rt *p4rt, ofp_port_t port_no)
 int
 p4rt_port_add(struct p4rt *p, struct netdev *netdev, ofp_port_t *ofp_portp)
 {
-    ofp_port_t ofp_port = ofp_portp ? *ofp_portp : 0xffff;  // 0xffff = OFPP_NONE
+    ofp_port_t ofp_port = ofp_portp ? *ofp_portp : OFPP_NONE;
     int error;
 
-    error = p->p4rt_class->port_add(p, netdev, ofp_port);
+    error = p->p4rt_class->port_add(p, netdev, ofp_to_u16(ofp_port));
     if (!error) {
         const char *netdev_name = netdev_get_name(netdev);
         error = update_port(p, netdev_name);
@@ -641,7 +635,7 @@ p4rt_port_del(struct p4rt *p, const char *name)
         return ENODEV;
     }
 
-    error = p->p4rt_class->port_del(p, p4port->port_no);
+    error = p->p4rt_class->port_del(p, ofp_to_u16(p4port->port_no));
 
     if (!error && p4port) {
         /* 'name' is the netdev's name and update_port() is going to close the
@@ -661,6 +655,7 @@ p4rt_prog_del(struct p4rt *p)
 {
     struct program *prog = p->prog;
     p4rt_program_destroy(prog);
+    return 0;
 }
 
 /* ## ------------- ## */
@@ -669,8 +664,8 @@ p4rt_prog_del(struct p4rt *p)
 
 
 pi_status_t _pi_assign_device(pi_dev_id_t dev_id, const pi_p4info_t *p4info,
-                              pi_assign_extra_t *extra) {
-    VLOG_INFO("Assigning device: %d", dev_id);
+                              pi_assign_extra_t *extra OVS_UNUSED) {
+    VLOG_INFO("Assigning device: %lu", dev_id);
 
     struct p4rt *p4rt = p4rt_lookup_by_dev_id(dev_id);
 
@@ -680,17 +675,17 @@ pi_status_t _pi_assign_device(pi_dev_id_t dev_id, const pi_p4info_t *p4info,
     }
 
     ovs_mutex_lock(&p4rt_mutex);
-    p4rt->p4info = p4info;
+    p4rt->p4info = CONST_CAST(pi_p4info_t *, p4info);
     ovs_mutex_unlock(&p4rt_mutex);
 
     return PI_STATUS_SUCCESS;
 }
 
 pi_status_t _pi_update_device_start(pi_dev_id_t dev_id,
-                                    const pi_p4info_t *p4info,
+                                    const pi_p4info_t *p4info OVS_UNUSED,
                                     const char *device_data,
                                     size_t device_data_size) {
-    VLOG_INFO("Injecting config (size %d) %s", device_data_size, device_data);
+    VLOG_INFO("Injecting config (size %lu) %s", device_data_size, device_data);
     int error;
 
     struct p4rt *p4rt = p4rt_lookup_by_dev_id(dev_id);
@@ -710,7 +705,7 @@ pi_status_t _pi_update_device_start(pi_dev_id_t dev_id,
     }
 
     *CONST_CAST(struct p4rt **, &prog->p4rt) = p4rt;
-    prog->data = device_data;
+    prog->data = CONST_CAST(char *, device_data);
     prog->data_len = device_data_size;
 
     error = p4rt->p4rt_class->program_insert(prog);
@@ -725,7 +720,7 @@ pi_status_t _pi_update_device_start(pi_dev_id_t dev_id,
     return PI_STATUS_SUCCESS;
 
 error:
-    VLOG_WARN_RL(&rl, "failed to initialize P4 datapath of device %d (%s)",
+    VLOG_WARN_RL(&rl, "failed to initialize P4 datapath of device %lu (%s)",
                  dev_id, ovs_strerror(error));
     if (!p4rt->prog && prog) {
         p4rt->p4rt_class->prog_dealloc(prog);

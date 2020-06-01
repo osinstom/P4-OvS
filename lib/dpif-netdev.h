@@ -49,123 +49,6 @@ struct pmd_auto_lb {
     uint64_t rebalance_poll_timer;
 };
 
-typedef void process_packet_cb(struct dp_netdev_pmd_thread *pmd,
-                               struct dp_packet_batch *packets,
-                               bool md_is_valid, odp_port_t port_no);
-
-/* Datapath based on the network device interface from netdev.h.
- *
- *
- * Thread-safety
- * =============
- *
- * Some members, marked 'const', are immutable.  Accessing other members
- * requires synchronization, as noted in more detail below.
- *
- * Acquisition order is, from outermost to innermost:
- *
- *    dp_netdev_mutex (global)
- *    port_mutex
- *    non_pmd_mutex
- */
-struct dp_netdev {
-    const struct dpif_class *const class;
-    const char *const name;
-    struct ovs_refcount ref_cnt;
-    atomic_flag destroyed;
-
-    /* Ports.
-     *
-     * Any lookup into 'ports' or any access to the dp_netdev_ports found
-     * through 'ports' requires taking 'port_mutex'. */
-    struct ovs_mutex port_mutex;
-    struct hmap ports;
-    struct seq *port_seq;       /* Incremented whenever a port changes. */
-
-    /* The time that a packet can wait in output batch for sending. */
-    atomic_uint32_t tx_flush_interval;
-
-    /* Meters. */
-    struct ovs_mutex meter_locks[N_METER_LOCKS];
-    struct dp_meter *meters[MAX_METERS]; /* Meter bands. */
-
-    /* Probability of EMC insertions is a factor of 'emc_insert_min'.*/
-    OVS_ALIGNED_VAR(CACHE_LINE_SIZE) atomic_uint32_t emc_insert_min;
-    /* Enable collection of PMD performance metrics. */
-    atomic_bool pmd_perf_metrics;
-    /* Enable the SMC cache from ovsdb config */
-    atomic_bool smc_enable_db;
-
-    /* Protects access to ofproto-dpif-upcall interface during revalidator
-     * thread synchronization. */
-    struct fat_rwlock upcall_rwlock;
-    upcall_callback *upcall_cb;  /* Callback function for executing upcalls. */
-    void *upcall_aux;
-
-    /* Callback function for notifying the purging of dp flows (during
-     * reseting pmd deletion). */
-    dp_purge_callback *dp_purge_cb;
-    void *dp_purge_aux;
-
-    /* Stores all 'struct dp_netdev_pmd_thread's. */
-    struct cmap poll_threads;
-    /* id pool for per thread static_tx_qid. */
-    struct id_pool *tx_qid_pool;
-    struct ovs_mutex tx_qid_pool_mutex;
-    /* Use measured cycles for rxq to pmd assignment. */
-    bool pmd_rxq_assign_cyc;
-
-    /* Protects the access of the 'struct dp_netdev_pmd_thread'
-     * instance for non-pmd thread. */
-    struct ovs_mutex non_pmd_mutex;
-
-    /* Each pmd thread will store its pointer to
-     * 'struct dp_netdev_pmd_thread' in 'per_pmd_key'. */
-    ovsthread_key_t per_pmd_key;
-
-    struct seq *reconfigure_seq;
-    uint64_t last_reconfigure_seq;
-
-    /* Cpu mask for pin of pmd threads. */
-    char *pmd_cmask;
-
-    uint64_t last_tnl_conf_seq;
-
-    struct conntrack *conntrack;
-    struct pmd_auto_lb pmd_alb;
-
-    process_packet_cb *process_cb;  /* Callback function for processing packets. */
-};
-
-/* Interface to netdev-based datapath. */
-struct dpif_netdev {
-    struct dpif dpif;
-    struct dp_netdev *dp;
-    uint64_t last_port_seq;
-};
-
-/* A port in a netdev-based datapath. */
-struct dp_netdev_port {
-    odp_port_t port_no;
-    bool dynamic_txqs;          /* If true XPS will be used. */
-    bool need_reconfigure;      /* True if we should reconfigure netdev. */
-    struct netdev *netdev;
-    struct hmap_node node;      /* Node in dp_netdev's 'ports'. */
-    struct netdev_saved_flags *sf;
-    struct dp_netdev_rxq *rxqs;
-    unsigned n_rxq;             /* Number of elements in 'rxqs' */
-    unsigned *txq_used;         /* Number of threads that use each tx queue. */
-    struct ovs_mutex txq_used_mutex;
-    bool emc_enabled;           /* If true EMC will be used. */
-    char *type;                 /* Port type as requested by user. */
-    char *rxq_affinity_list;    /* Requested affinity of rx queues. */
-};
-
-struct dp_netdev_port_state {
-    struct hmap_position position;
-    char *name;
-};
-
 /* EMC cache and SMC cache compose the datapath flow cache (DFC)
  *
  * Exact match cache for frequently used flows
@@ -404,6 +287,123 @@ struct dp_netdev_pmd_thread {
 
     /* Set to true if the pmd thread needs to be reloaded. */
     bool need_reload;
+};
+
+typedef void process_packet_cb(struct dp_netdev_pmd_thread *pmd,
+                               struct dp_packet_batch *packets,
+                               bool md_is_valid, odp_port_t port_no);
+
+/* Datapath based on the network device interface from netdev.h.
+ *
+ *
+ * Thread-safety
+ * =============
+ *
+ * Some members, marked 'const', are immutable.  Accessing other members
+ * requires synchronization, as noted in more detail below.
+ *
+ * Acquisition order is, from outermost to innermost:
+ *
+ *    dp_netdev_mutex (global)
+ *    port_mutex
+ *    non_pmd_mutex
+ */
+struct dp_netdev {
+    const struct dpif_class *const class;
+    const char *const name;
+    struct ovs_refcount ref_cnt;
+    atomic_flag destroyed;
+
+    /* Ports.
+     *
+     * Any lookup into 'ports' or any access to the dp_netdev_ports found
+     * through 'ports' requires taking 'port_mutex'. */
+    struct ovs_mutex port_mutex;
+    struct hmap ports;
+    struct seq *port_seq;       /* Incremented whenever a port changes. */
+
+    /* The time that a packet can wait in output batch for sending. */
+    atomic_uint32_t tx_flush_interval;
+
+    /* Meters. */
+    struct ovs_mutex meter_locks[N_METER_LOCKS];
+    struct dp_meter *meters[MAX_METERS]; /* Meter bands. */
+
+    /* Probability of EMC insertions is a factor of 'emc_insert_min'.*/
+    OVS_ALIGNED_VAR(CACHE_LINE_SIZE) atomic_uint32_t emc_insert_min;
+    /* Enable collection of PMD performance metrics. */
+    atomic_bool pmd_perf_metrics;
+    /* Enable the SMC cache from ovsdb config */
+    atomic_bool smc_enable_db;
+
+    /* Protects access to ofproto-dpif-upcall interface during revalidator
+     * thread synchronization. */
+    struct fat_rwlock upcall_rwlock;
+    upcall_callback *upcall_cb;  /* Callback function for executing upcalls. */
+    void *upcall_aux;
+
+    /* Callback function for notifying the purging of dp flows (during
+     * reseting pmd deletion). */
+    dp_purge_callback *dp_purge_cb;
+    void *dp_purge_aux;
+
+    /* Stores all 'struct dp_netdev_pmd_thread's. */
+    struct cmap poll_threads;
+    /* id pool for per thread static_tx_qid. */
+    struct id_pool *tx_qid_pool;
+    struct ovs_mutex tx_qid_pool_mutex;
+    /* Use measured cycles for rxq to pmd assignment. */
+    bool pmd_rxq_assign_cyc;
+
+    /* Protects the access of the 'struct dp_netdev_pmd_thread'
+     * instance for non-pmd thread. */
+    struct ovs_mutex non_pmd_mutex;
+
+    /* Each pmd thread will store its pointer to
+     * 'struct dp_netdev_pmd_thread' in 'per_pmd_key'. */
+    ovsthread_key_t per_pmd_key;
+
+    struct seq *reconfigure_seq;
+    uint64_t last_reconfigure_seq;
+
+    /* Cpu mask for pin of pmd threads. */
+    char *pmd_cmask;
+
+    uint64_t last_tnl_conf_seq;
+
+    struct conntrack *conntrack;
+    struct pmd_auto_lb pmd_alb;
+
+    process_packet_cb *process_cb;  /* Callback function for processing packets. */
+};
+
+/* Interface to netdev-based datapath. */
+struct dpif_netdev {
+    struct dpif dpif;
+    struct dp_netdev *dp;
+    uint64_t last_port_seq;
+};
+
+/* A port in a netdev-based datapath. */
+struct dp_netdev_port {
+    odp_port_t port_no;
+    bool dynamic_txqs;          /* If true XPS will be used. */
+    bool need_reconfigure;      /* True if we should reconfigure netdev. */
+    struct netdev *netdev;
+    struct hmap_node node;      /* Node in dp_netdev's 'ports'. */
+    struct netdev_saved_flags *sf;
+    struct dp_netdev_rxq *rxqs;
+    unsigned n_rxq;             /* Number of elements in 'rxqs' */
+    unsigned *txq_used;         /* Number of threads that use each tx queue. */
+    struct ovs_mutex txq_used_mutex;
+    bool emc_enabled;           /* If true EMC will be used. */
+    char *type;                 /* Port type as requested by user. */
+    char *rxq_affinity_list;    /* Requested affinity of rx queues. */
+};
+
+struct dp_netdev_port_state {
+    struct hmap_position position;
+    char *name;
 };
 
 /* Contained by struct dp_netdev_pmd_thread's 'send_port_cache',
