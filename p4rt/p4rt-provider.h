@@ -146,11 +146,11 @@ struct p4rt_class {
      * It doesn't matter whether the new port will be returned by a later call
      * to ->port_poll(); the implementation may do whatever is more
      * convenient. */
-    int (*port_add)(struct p4rt *p, struct netdev *netdev, uint32_t port_no);
+    int (*port_add)(struct p4rt *p, struct netdev *netdev, uint16_t port_no);
 
     /* Deletes port number 'port_no' from the datapath for 'p4rt'.  Returns
      * 0 if successful, otherwise a positive errno value. */
-    int (*port_del)(struct p4rt *p4rt, ofp_port_t port_no);
+    int (*port_del)(struct p4rt *p4rt, uint16_t port_no);
 
 /* ## --------------------- ## */
 /* ## Reconfigurable (P4) datapath Functions ## */

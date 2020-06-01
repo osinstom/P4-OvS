@@ -284,7 +284,6 @@ static void bridge_add_ports(struct bridge *,
                              const struct shash *wanted_ports);
 
 static void bridge_delete_p4rts(void);
-static void bridge_delete_or_reconfigure_p4rt_program(struct bridge *br);
 static void bridge_delete_or_reconfigure_p4rt_ports(struct bridge *);
 
 static void bridge_configure_datapath_id(struct bridge *);
@@ -413,7 +412,7 @@ bridge_init_ofproto(const struct ovsrec_open_vswitch *cfg)
 }
 
 static void
-bridge_init_p4rt(const struct ovsrec_open_vswitch *cfg)
+bridge_init_p4rt(const struct ovsrec_open_vswitch *cfg OVS_UNUSED)
 {
     static bool initialized = false;
 
@@ -837,7 +836,7 @@ datapath_reconfigure(const struct ovsrec_open_vswitch *cfg)
 static void
 bridge_configure_p4rt_datapath_id(struct bridge *br)
 {
-    char *dpid_string = xasprintf("%016"PRIx64, 0);;
+    char *dpid_string = xasprintf("%016"PRIx64, 0UL);;
     ovsrec_bridge_set_datapath_id(br->cfg, dpid_string);
     free(dpid_string);
 }
@@ -1115,8 +1114,6 @@ iface_set_netdev_mtu(const struct ovsrec_interface *iface_cfg,
 static void
 bridge_delete_or_reconfigure_p4rt_ports(struct bridge *br)
 {
-    struct port *port, *port_next;
-    struct p4rt *p4rt = br->p4rt;
     const char *devname;
 
     struct sset p4rt_ports;

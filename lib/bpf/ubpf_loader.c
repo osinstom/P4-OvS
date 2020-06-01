@@ -3,7 +3,7 @@
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * You may obtain a copy of the License at:
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
@@ -15,6 +15,7 @@
  */
 
 #define _GNU_SOURCE
+#include <config.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -23,11 +24,10 @@
 #include <inttypes.h>
 #include "ubpf_int.h"
 #include <elf.h>
-#include "ubpf_array.c"
-#include "ubpf_bf.c"
-#include "ubpf_countmin.c"
+#include "ubpf_array.h"
+#include "ubpf_bf.h"
+#include "ubpf_countmin.h"
 #include "ubpf_hashmap.h"
-#include <config.h>
 
 #define MAX_SECTIONS 32
 
@@ -54,6 +54,28 @@ bounds_check(struct bounds *bounds, uint64_t offset, uint64_t size)
     }
     return (void *)((uint64_t)bounds->base + offset);
 }
+
+static const struct ubpf_map_ops ubpf_array_ops = {
+        .map_lookup = ubpf_array_lookup,
+        .map_update = ubpf_array_update,
+        .map_delete = NULL,
+        .map_add = NULL,
+};
+
+static const struct ubpf_map_ops ubpf_bf_ops = {
+        .map_lookup = ubpf_bf_lookup,
+        .map_update = NULL,
+        .map_delete = NULL,
+        .map_add = ubpf_bf_add,
+};
+
+static const struct ubpf_map_ops ubpf_countmin_ops = {
+        .map_lookup = ubpf_countmin_lookup,
+        .map_update = NULL,
+        .map_delete = NULL,
+        .map_add = ubpf_countmin_add,
+};
+
 
 int
 ubpf_load_elf(struct ubpf_vm *vm, const void *elf, size_t elf_size, char **errmsg)
@@ -304,7 +326,7 @@ ubpf_load_elf(struct ubpf_vm *vm, const void *elf, size_t elf_size, char **errms
                         }
                     }
 
-                    struct ebpf_inst *inst1 = text_copy + r->r_offset;
+                    struct ebpf_inst *inst1 = (struct ebpf_inst *) ((uint64_t *) text_copy + r->r_offset);
                     inst1->src = BPF_PSEUDO_MAP_FD;
                     inst1->imm = (uint32_t)((uint64_t)map);
                     struct ebpf_inst *inst2 = inst1 + 1;

@@ -3,7 +3,7 @@
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * You may obtain a copy of the License at:
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
@@ -16,31 +16,20 @@
 #include <string.h>
 
 #include <config.h>
-#include "util.h"
 
 #include "lookup3.h"
-#include "ubpf_int.h"
+#include "ubpf_countmin.h"
+#include "util.h"
 
 #ifndef min
 #define min(a,b) ((a < b)? a : b)
 #endif
-
-void *ubpf_countmin_create(const struct ubpf_map_def *map_def);
-static void *ubpf_countmin_lookup(const struct ubpf_map *map, const void *key);
-static int ubpf_countmin_add(struct ubpf_map *map, void *value);
 
 struct countmin_sketch {
     unsigned int nb_columns;
     unsigned int nb_rows;
     void *current_count;
     uint32_t counters[];
-};
-
-const struct ubpf_map_ops ubpf_countmin_ops = {
-    .map_lookup = ubpf_countmin_lookup,
-    .map_update = NULL,
-    .map_delete = NULL,
-    .map_add = ubpf_countmin_add,
 };
 
 void *
@@ -63,7 +52,7 @@ ubpf_countmin_create(const struct ubpf_map_def *map_def)
     return countmin;
 }
 
-static void *
+void *
 ubpf_countmin_lookup(const struct ubpf_map *map, const void *value)
 {
     unsigned int i;
@@ -97,7 +86,7 @@ ubpf_countmin_lookup(const struct ubpf_map *map, const void *value)
     return count;
 }
 
-static int
+int
 ubpf_countmin_add(struct ubpf_map *map, void *value)
 {
     unsigned int i;

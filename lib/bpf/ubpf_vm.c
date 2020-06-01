@@ -3,7 +3,7 @@
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * You may obtain a copy of the License at:
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
@@ -634,7 +634,7 @@ ubpf_exec(const struct ubpf_vm *vm, void *mem, size_t mem_len)
     }
 }
 
-static bool
+__attribute__((unused)) static bool
 validate(const struct ubpf_vm *vm, const struct ebpf_inst *insts,
          uint32_t num_insts, char **errmsg) {
     if (num_insts >= MAX_INSTS) {
@@ -1203,6 +1203,8 @@ update_min_max_alu_op(struct bpf_reg_state regs[], struct ebpf_inst *inst) {
     handle_min_max_overflows(dst_reg, mask);
 
     struct bpf_reg_state nr;
+    nr.u.min = 0;
+    nr.u.max = 0;
     switch(EBPF_OP(inst->opcode)) {
         case EBPF_ALU_ADD:
             nr.u.min = (dst_reg->u.min + src_reg.u.min) & mask;

@@ -38,8 +38,11 @@ lib_libopenvswitch_la_SOURCES = \
 	lib/bpf/ubpf_jit_x86_64.c \
 	lib/bpf/ubpf_jit_x86_64.h \
 	lib/bpf/ubpf_array.c \
+	lib/bpf/ubpf_array.h \
 	lib/bpf/ubpf_bf.c \
+	lib/bpf/ubpf_bf.h \
 	lib/bpf/ubpf_countmin.c \
+	lib/bpf/ubpf_countmin.h \
 	lib/bpf/ubpf_hashmap.c \
 	lib/bpf/ubpf_hashmap.h \
 	lib/bpf/ubpf_loader.c \

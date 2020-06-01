@@ -1,7 +1,21 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at:
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+#include <config.h>
 #include <stdio.h>
 #include <errno.h>
 
-#include <config.h>
 #include "bpf.h"
 
 #include "openvswitch/vlog.h"
@@ -64,7 +78,7 @@ ubpf_map_lookup(const struct ubpf_map *map, void *key)
     return map->ops.map_lookup(map, key);
 }
 
-struct ubpf_func_proto ubpf_map_lookup_proto = {
+static struct ubpf_func_proto ubpf_map_lookup_proto = {
     .func = (ext_func)ubpf_map_lookup,
     .arg_types = {
                 MAP_PTR,
@@ -101,7 +115,7 @@ ubpf_map_update(struct ubpf_map *map, const void *key, void *item)
     return map->ops.map_update(map, key, item);
 }
 
-struct ubpf_func_proto ubpf_map_update_proto = {
+static struct ubpf_func_proto ubpf_map_update_proto = {
     .func = (ext_func)ubpf_map_update,
     .arg_types = {
                 MAP_PTR,
@@ -135,7 +149,7 @@ ubpf_map_add(struct ubpf_map *map, void *item)
     return map->ops.map_add(map, item);
 }
 
-struct ubpf_func_proto ubpf_map_add_proto = {
+static struct ubpf_func_proto ubpf_map_add_proto = {
     .func = (ext_func)ubpf_map_add,
     .arg_types = {
                 MAP_PTR,
@@ -169,7 +183,7 @@ ubpf_map_delete(struct ubpf_map *map, const void *key)
     return map->ops.map_delete(map, key);
 }
 
-struct ubpf_func_proto ubpf_map_delete_proto = {
+static struct ubpf_func_proto ubpf_map_delete_proto = {
     .func = (ext_func)ubpf_map_delete,
     .arg_types = {
                 MAP_PTR,
@@ -199,7 +213,7 @@ ubpf_printf(const char *fmt, ...)
     va_end(args);
 }
 
-struct ubpf_func_proto ubpf_printf_proto = {
+static struct ubpf_func_proto ubpf_printf_proto = {
     .func = (ext_func)ubpf_printf,
     .arg_types = {
                 0xff,
@@ -228,7 +242,7 @@ ubpf_time_get_ns(void)
     return curr_time_ns;
 }
 
-struct ubpf_func_proto ubpf_time_get_ns_proto = {
+static struct ubpf_func_proto ubpf_time_get_ns_proto = {
     .func = (ext_func)ubpf_time_get_ns,
     .arg_types = {
                 0xff,
@@ -253,7 +267,7 @@ ubpf_hash(void *item, uint64_t size)
     return hashlittle(item, (uint32_t)size, 0);
 }
 
-struct ubpf_func_proto ubpf_hash_proto = {
+static struct ubpf_func_proto ubpf_hash_proto = {
     .func = (ext_func)ubpf_hash,
     .arg_types = {
                 PKT_PTR | MAP_VALUE_PTR | STACK_PTR,
@@ -287,7 +301,7 @@ ubpf_adjust_head(void* ctx, int offset) {
     return pkt;
 }
 
-struct ubpf_func_proto ubpf_adjust_head_proto = {
+static struct ubpf_func_proto ubpf_adjust_head_proto = {
     .func = (ext_func)ubpf_adjust_head,
     .arg_types = {
             CTX_PTR,
@@ -313,7 +327,7 @@ ubpf_packet_data(void *ctx)
     return dp_packet_data(packet);
 }
 
-struct ubpf_func_proto ubpf_packet_data_proto = {
+static struct ubpf_func_proto ubpf_packet_data_proto = {
     .func = (ext_func)ubpf_packet_data,
     .arg_types = {
             CTX_PTR,
@@ -339,7 +353,7 @@ ubpf_get_rss_hash(void *ctx)
     return dp_packet_get_rss_hash(packet);
 }
 
-struct ubpf_func_proto ubpf_get_rss_hash_proto = {
+static struct ubpf_func_proto ubpf_get_rss_hash_proto = {
         .func = (ext_func)ubpf_get_rss_hash,
         .arg_types = {
                 PKT_PTR,
