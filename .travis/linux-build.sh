@@ -142,6 +142,7 @@ function install_dpdk()
 
 function install_pi()
 {
+    mkdir -p pi_dir
     pushd pi_dir
 
     git clone https://github.com/google/protobuf.git

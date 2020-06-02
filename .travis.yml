@@ -27,6 +27,13 @@ addons:
       - selinux-policy-dev
       - libunbound-dev
       - libunwind-dev
+      - libjudy-dev
+      - libreadline-dev
+      - valgrind
+      - libtool-bin
+      - libboost-dev
+      - libboost-system-dev
+      - libboost-thread-dev
 
 before_install: ./.travis/${TRAVIS_OS_NAME}-prepare.sh
 
@@ -35,10 +42,10 @@ before_script: export PATH=$PATH:$HOME/bin
 env:
   - WITH_P4=1 TESTSUITE=1
   - WITH_P4=1 DPDK=1
+  - WITH_P4=1 KERNEL_LIST="5.5  4.20 4.19 4.18 4.17 4.16"
+  - WITH_P4=1 KERNEL_LIST="4.15 4.14 4.9  4.4  3.19 3.16"
   - WITH_P4=1 AFXDP=1 KERNEL=5.3
-  - WITH_P4=1 DPDK=1 OPTS="--enable-shared"
-  - DPDK_SHARED=1
-  - DPDK_SHARED=1 OPTS="--enable-shared"
+  - WITH_P4=1 DPDK_SHARED=1
 
 #matrix:
 #  include:
