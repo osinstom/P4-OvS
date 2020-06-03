@@ -598,6 +598,7 @@ mirrors             : [<7>]
 name                : br0
 netflow             : <8>
 other_config        : {datapath-id="1234", hwaddr="00:12:34:56:78:bb"}
+p4                  : false
 ports               : [<9>, <10>, <11>]
 protocols           : []
 rstp_enable         : false
@@ -636,6 +637,7 @@ mirrors             : []
 name                : br0
 netflow             : []
 other_config        : {hwaddr="00:12:34:56:78:bb"}
+p4                  : false
 ports               : [<1>, <2>, <3>]
 protocols           : []
 rstp_enable         : false
@@ -880,6 +882,7 @@ mirrors             : []
 name                : br0
 netflow             : []
 other_config        : {}
+p4                  : false
 ports               : []
 protocols           : []
 rstp_enable         : false
@@ -1406,6 +1409,7 @@ mirrors             : []
 name                : br0
 netflow             : []
 other_config        : {}
+p4                  : false
 ports               : []
 protocols           : []
 rstp_enable         : false
