@@ -1087,7 +1087,7 @@ dpif_netdev_enumerate(struct sset *all_dps,
 static bool
 dpif_netdev_class_is_dummy(const struct dpif_class *class)
 {
-    return class != &dpif_netdev_class && class != &dpif_ubpf_class;
+    return strstr(class->type, "dummy") != NULL;
 }
 
 const char *

@@ -171,6 +171,7 @@ function install_pi()
     ./configure --with-proto
     make -j4
     sudo make install
+    sudo ldconfig
     popd
 
     popd

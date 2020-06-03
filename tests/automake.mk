@@ -99,6 +99,7 @@ TESTSUITE_AT = \
 	tests/ovsdb-rbac.at \
 	tests/ovs-vsctl.at \
 	tests/ovs-xapi-sync.at \
+	tests/p4.at \
 	tests/stp.at \
 	tests/rstp.at \
 	tests/interface-reconfigure.at \
