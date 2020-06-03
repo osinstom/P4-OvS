@@ -841,17 +841,17 @@ bridge_configure_p4rt_datapath_id(struct bridge *br)
     free(dpid_string);
 }
 
-static void
+static int
 bridge_configure_p4_datapath(struct bridge *br)
 {
     const char *program_path = smap_get(&br->cfg->other_config, "program");
     if (program_path == NULL) {
-        VLOG_WARN("bridge %s: P4 target binary not provided. "
+        VLOG_INFO("bridge %s: P4 target binary not provided. "
                   "Initializing P4 datapath with no P4 program!", br->name);
-        return;
+        return 0;
     }
 
-    p4rt_initialize_datapath(br->p4rt, program_path);
+    return p4rt_initialize_datapath(br->p4rt, program_path);
 }
 
 static void
@@ -942,12 +942,15 @@ bridge_reconfigure(const struct ovsrec_open_vswitch *ovs_cfg)
         if (br->p4 && !br->p4rt) {
             int error;
             error = p4rt_create(br->name, br->type, &br->p4rt);
+
+            if (!error) {
+                error = bridge_configure_p4_datapath(br);
+            }
+
             if (error) {
                 VLOG_ERR("failed to create bridge %s: %s", br->name,
                          ovs_strerror(error));
                 bridge_destroy(br, true);
-            } else {
-                bridge_configure_p4_datapath(br);
             }
         }
     }
