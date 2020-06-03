@@ -82,6 +82,14 @@ dp_initialize(void)
 
     if (ovsthread_once_start(&once)) {
         dp_register_provider(&dpif_ubpf_class);
+
+        struct dpif_class *class;
+
+        class = xmalloc(sizeof *class);
+        *class = dpif_ubpf_class;
+        class->type = xstrdup("dummy-p4");
+        dp_register_provider(class);
+
         ovsthread_once_done(&once);
     }
 }
@@ -98,6 +106,7 @@ p4rt_dpif_enumerate_types(struct sset *types)
     /* Return only ubpf as a proper type for P4 datapath */
     /* FIXME: not a final implementation. */
     sset_add(types, "ubpf");
+    sset_add(types, "dummy-p4");
 }
 
 static int

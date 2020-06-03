@@ -34,6 +34,7 @@ addons:
       - libboost-dev
       - libboost-system-dev
       - libboost-thread-dev
+      - libc6-dev-i386
 
 before_install: ./.travis/${TRAVIS_OS_NAME}-prepare.sh
 
