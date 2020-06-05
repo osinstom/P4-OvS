@@ -1,3 +1,5 @@
+![GitHub release](https://img.shields.io/github/v/tag/osinstom/P4-OvS.svg?sort=semver)
+
 P4-OvS - Bringing the power of P4 to OvS!
 =========================================
 
@@ -26,11 +28,9 @@ Please, check [changelog](Documentation/topics/p4/changelog.md) for details on w
 
 The current version of the project allows to:
 
-* create a single P4 bridge with an initial P4 program
+* create a single P4 bridge and provide a P4 program as configuration parameter or using P4Runtime and SetForwardingPipelineConfig RPC.
 * add ports to the bridge
-* receive traffic from this ports and handle it in the P4 (uBPF) datapath.
-
-![demo](Documentation/topics/p4/demo.gif)
+* receive traffic from these ports and handle it in the P4 (uBPF) datapath.
 
 To play with P4-OVS on your own follow [Getting started](./Documentation/topics/p4/getting-started.md) guide.
 

@@ -5,15 +5,31 @@ Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## Unreleased
 
+## 0.3.0 - 2020-06-20
+
+### Added
+
+- PTF tests for uBPF datapath
+- Allow for user-defined "Device ID" of P4Runtime bridge
+- Automatically generate and assign "Device ID" if not provided by a user
+- Support for Write RPC for P4 Table Entry
+
+### Changed
+
+- Modified OVSDB model to store P4 Settings in a separate column
+
 ## 0.2.0 - 2020-06-06
 
 ### Added
 
 - Initial implementation of gRPC server 
+- Support for SetForwardingPipelineConfig RPC
+- Support for GetForwardingPipelineConfig RPC
+- Added functional tests for P4 bridges
 
-### Changed
+### Fixed
 
-- Enable per bridge P4 program (previously only one P4 bridge might be created)
+- Don't create a P4Runtime bridge if pre-configured P4 program is not initialized successfully.
 
 ## 0.1.1 - 2020-05-23
 
