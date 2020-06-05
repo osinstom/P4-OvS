@@ -20,7 +20,7 @@ p4rt_libp4rt_la_CPPFLAGS = $(AM_CPPFLAGS)
 p4rt_libp4rt_la_CFLAGS = $(AM_CFLAGS)
 
 p4rt_libp4rt_la_LIBADD += \
--lpifeproto -lpigrpcserver -lpi -lpip4info -lgrpc -lprotobuf -lpthread
+-lpifeproto -lpigrpcserver -lpi -lpip4info -lgrpc -lprotobuf
 
 pkgconfig_DATA += \
 	p4rt/libp4rt.pc
