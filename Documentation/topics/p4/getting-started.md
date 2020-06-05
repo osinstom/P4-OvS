@@ -1,6 +1,6 @@
 ## Join the discussion!
 
-**TODO**: I'm working on providing the XMPP server to discuss the P4-OvS project. I will provide access details here.
+Join the [P4 Slack](https://p4-lang.slack.com) and look for **#p4-vswitch** channel, which is dedicated for discussion about this project!
 
 ## How to install? 
 
