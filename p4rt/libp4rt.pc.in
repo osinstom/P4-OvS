@@ -8,4 +8,3 @@ Description: P4Runtime library of Open vSwitch
 Version: @VERSION@
 Libs: -L${libdir} -lp4rt
 Libs.private: -lpifeproto -lpigrpcserver -lpi -lprotobuf
-Cflags: -I${includedir}/PI

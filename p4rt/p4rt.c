@@ -665,7 +665,6 @@ p4rt_prog_del(struct p4rt *p)
 
 pi_status_t _pi_assign_device(pi_dev_id_t dev_id, const pi_p4info_t *p4info,
                               pi_assign_extra_t *extra OVS_UNUSED) {
-    VLOG_INFO("Assigning device: %lu", dev_id);
 
     struct p4rt *p4rt = p4rt_lookup_by_dev_id(dev_id);
 
@@ -678,6 +677,8 @@ pi_status_t _pi_assign_device(pi_dev_id_t dev_id, const pi_p4info_t *p4info,
     p4rt->p4info = CONST_CAST(pi_p4info_t *, p4info);
     ovs_mutex_unlock(&p4rt_mutex);
 
+    VLOG_INFO("P4 device %lu assigned.", dev_id);
+
     return PI_STATUS_SUCCESS;
 }
 
@@ -685,7 +686,6 @@ pi_status_t _pi_update_device_start(pi_dev_id_t dev_id,
                                     const pi_p4info_t *p4info OVS_UNUSED,
                                     const char *device_data,
                                     size_t device_data_size) {
-    VLOG_INFO("Injecting config (size %lu) %s", device_data_size, device_data);
     int error;
 
     struct p4rt *p4rt = p4rt_lookup_by_dev_id(dev_id);
@@ -715,7 +715,7 @@ pi_status_t _pi_update_device_start(pi_dev_id_t dev_id,
 
     p4rt->prog = prog;
 
-    VLOG_INFO("P4 datapath initialized!");
+    VLOG_INFO("P4 datapath for device %lu initialized!", dev_id);
 
     return PI_STATUS_SUCCESS;
 
