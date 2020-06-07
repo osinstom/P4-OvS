@@ -100,6 +100,12 @@ p4rt_dpif_init(void)
     dp_initialize();
 }
 
+static const char *
+p4rt_dpif_port_open_type(const char *datapath_type, const char *port_type)
+{
+    return dpif_port_open_type(datapath_type, port_type);
+}
+
 static void
 p4rt_dpif_enumerate_types(struct sset *types)
 {
@@ -438,7 +444,7 @@ p4rt_dpif_prog_dealloc(struct program *prog)
 
 const struct p4rt_class p4rt_dpif_class = {
         p4rt_dpif_init, /* init */
-        NULL,           /* port_open_type */
+        p4rt_dpif_port_open_type,           /* port_open_type */
         p4rt_dpif_enumerate_types,
         p4rt_dpif_enumerate_names,
         p4rt_dpif_del,

@@ -330,14 +330,11 @@ p4rt_enumerate_names(const char *type, struct sset *names)
 }
 
 const char *
-p4rt_port_open_type(const struct p4rt *p4rt OVS_UNUSED, const char *port_type)
+p4rt_port_open_type(const struct p4rt *p4rt, const char *port_type)
 {
-    /* FIXME: So far, P4rt switch can only be implemented in userspace. */
-    if (!strcmp(port_type, "internal")) {
-        return "tap";
-    }
-
-    return port_type;
+    return (p4rt->p4rt_class->port_open_type
+            ? p4rt->p4rt_class->port_open_type(p4rt->type, port_type)
+            : port_type);
 }
 
 /* Clears 'types' and enumerates all registered p4rt types into it.  The
