@@ -32,6 +32,8 @@ VLOG_DEFINE_THIS_MODULE(dpif_ubpf);
 /* ## --------------------------------------- ## */
 
 struct dp_prog {
+    struct cmap_node cmap_node; /* Within dp_ubpf.dp_progs_port_map */
+
     ovs_be16 id;
     struct ubpf_vm *vm;
 };
@@ -42,6 +44,9 @@ struct dp_ubpf {
 
     /* Data plane program. */
     struct dp_prog *prog;
+
+    /* Stores the association between an dp_netdev's port and associated uBPF program. */
+    struct cmap dp_progs_port_map;
 };
 
 /* Interface to ubpf-based datapath. */
@@ -73,6 +78,13 @@ static struct ovs_mutex dp_ubpf_mutex = OVS_MUTEX_INITIALIZER;
 /* Contains all 'struct dp_netdev's. */
 static struct shash dp_ubpfs OVS_GUARDED_BY(dp_ubpf_mutex)
         = SHASH_INITIALIZER(&dp_ubpfs);
+
+/* Protects against changes to 'dp_progs'. */
+static struct ovs_mutex dp_prog_mutex = OVS_MUTEX_INITIALIZER;
+
+/* Contains all 'struct dp_prog's.
+ * According to PI library 256 is the maximum number of P4 devices. */
+static struct dp_prog *dp_progs[256] = { };
 
 /* ## ------------------------- ## */
 /* ## Prototypes for functions. ## */
@@ -193,6 +205,23 @@ packet_batch_per_action_execute(struct packet_batch_per_action *batch,
     dp_packet_batch_init(&batch->output_batch);
 }
 
+static struct dp_prog *
+get_dp_prog(struct dp_ubpf *dp, odp_port_t in_port)
+{
+    struct dp_prog *prog;
+    const struct cmap_node *node;
+
+    uint32_t hash = hash_int(in_port, 0);
+    node = cmap_find(&dp->dp_progs_port_map, hash);
+    if (!node) {
+        return NULL;
+    }
+
+    prog = CONTAINER_OF(node, struct dp_prog, cmap_node);
+
+    return prog;
+}
+
 static inline void
 protocol_independent_processing(struct dp_netdev_pmd_thread *pmd,
                                 struct dp_packet_batch *packets_,
@@ -200,7 +229,8 @@ protocol_independent_processing(struct dp_netdev_pmd_thread *pmd,
 {
     struct dp_ubpf *dp = dp_ubpf_cast(pmd->dp);
 
-    if (OVS_LIKELY(dp->prog)) {
+    struct dp_prog *prog = get_dp_prog(dp, in_port);
+    if (OVS_LIKELY(prog)) {
         struct dp_packet *packet;
 
         DP_PACKET_BATCH_FOR_EACH (i, packet, packets_) {
@@ -211,7 +241,7 @@ protocol_independent_processing(struct dp_netdev_pmd_thread *pmd,
                     .output_port = 0,
             };
 
-            ubpf_handle_packet(dp->prog->vm, &std_meta, packet);
+            ubpf_handle_packet(prog->vm, &std_meta, packet);
 
             /* To simplify we hash two words (output_action, output_port) regardless of the action. */
             uint32_t hash = hash_2words(std_meta.output_action,
@@ -289,6 +319,7 @@ create_dp_ubpf(const char *name, const struct dpif_class *class,
 
     *CONST_CAST(const char **, &dp->name) = xstrdup(name);
     dp->prog = NULL;
+    cmap_init(&dp->dp_progs_port_map);
 
     *dpp = dp;
     return 0;
@@ -323,6 +354,7 @@ dpif_ubpf_close(struct dpif *dpif)
     struct dpif_ubpf *dpif_ubpf = dpif_ubpf_cast(dpif);
     struct dp_ubpf *dp = dpif_ubpf->dp;
 
+    cmap_destroy(&dp->dp_progs_port_map);
     shash_find_and_delete(&dp_ubpfs, dp->name);
     free(CONST_CAST(char *, dp->name));
 
@@ -336,11 +368,26 @@ dpif_ubpf_set_config(struct dpif *dpif OVS_UNUSED, const struct smap *other_conf
     return 0;
 }
 
+/*
+ * If configuration parameter exists this function updates its value.
+ * If configuration parameter does not exist it sets the configuration of a given port.
+ */
 static int
-dpif_ubpf_port_set_config(struct dpif *dpif OVS_UNUSED, odp_port_t port_no OVS_UNUSED,
-                          const struct smap *cfg OVS_UNUSED)
+dpif_ubpf_port_set_config(struct dpif *dpif, odp_port_t port_no,
+                          const struct smap *cfg)
 {
-    /* TODO: Set uBPF-specific and netdev configuration for ports. */
+    struct dp_ubpf *dp_ubpf = dpif_ubpf_cast(dpif)->dp;
+    int prog_no = smap_get_int(cfg, "program", -1);
+
+    VLOG_INFO("Setting prog %d for port %d", prog_no, port_no);
+
+    ovs_mutex_lock(&dp_prog_mutex);
+    struct dp_prog *prog = dp_progs[prog_no];
+    ovs_mutex_unlock(&dp_prog_mutex);
+
+    cmap_insert(&dp_ubpf->dp_progs_port_map, &prog->cmap_node,
+                hash_int(port_no, 0));
+
     return 0;
 }
 
@@ -349,6 +396,14 @@ dp_prog_set(struct dpif *dpif, struct dpif_prog prog)
 {
     struct dp_ubpf *dp_ubpf = dpif_ubpf_cast(dpif)->dp;
     struct dp_prog *dp_prog;
+
+    ovs_mutex_lock(&dp_prog_mutex);
+    dp_prog = dp_progs[prog.id];
+    ovs_mutex_unlock(&dp_prog_mutex);
+    if (dp_prog) {
+        /* P4 program with a given ID exists. */
+        return EEXIST;
+    }
 
     struct ubpf_vm *vm = create_ubpf_vm(prog.id);
     if (!load_bpf_prog(vm, prog.data_len, prog.data)) {
@@ -366,6 +421,10 @@ dp_prog_set(struct dpif *dpif, struct dpif_prog prog)
     }
     dp_ubpf->prog = dp_prog;
 
+    ovs_mutex_lock(&dp_prog_mutex);
+    dp_progs[prog.id] = dp_prog;
+    ovs_mutex_unlock(&dp_prog_mutex);
+
     return 0;
 }
 
@@ -377,16 +436,21 @@ dp_prog_destroy_(struct dp_prog *prog)
 }
 
 static void
-dp_prog_unset(struct dpif *dpif, uint32_t prog_id OVS_UNUSED)
+dp_prog_unset(struct dpif *dpif OVS_UNUSED, uint32_t prog_id)
 {
-    struct dp_ubpf *dp = dpif_ubpf_cast(dpif)->dp;
+    struct dp_prog *prog;
 
-    if (!dp->prog) {
+    ovs_mutex_lock(&dp_prog_mutex);
+    prog = dp_progs[prog_id];
+    ovs_mutex_unlock(&dp_prog_mutex);
+
+    if (!prog) {
         /* uBPF program is not installed. */
         return;
     }
 
-    dp_prog_destroy_(dp->prog);
+    dp_prog_destroy_(prog);
+    dp_progs[prog_id] = NULL;
 }
 
 const struct dpif_class dpif_ubpf_class = {

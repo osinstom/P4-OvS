@@ -100,5 +100,50 @@ OVS_WAIT_UNTIL([grep "bridge br-test: added interface p2 on port 3" ovs-vswitchd
 AT_CHECK([grep "bridge br-test: added interface p2 on port 3" ovs-vswitchd.log],
          [0], [ignore])
 
+OVS_VSWITCHD_STOP
 AT_CLEANUP
 
+AT_SETUP([p4 - setup P4 bridge, remove it, and add a new one])
+OVS_VSWITCHD_START
+
+AT_DATA([test.c], [dnl
+#include <stdint.h>
+#include <stdbool.h>
+#include <stddef.h>
+
+uint64_t entry(void *ctx, struct standard_metadata *std_meta){
+   return 0;
+}
+])
+
+AT_CHECK([clang -w -target bpf -c test.c -o test.o])
+
+AT_CHECK([ovs-vsctl add-br br-test -- set bridge br-test datapath_type=dummy-p4 p4=true other_config:program="test.o"], [0])
+
+AT_CHECK([ovs-vsctl del-br br-test], [0])
+
+AT_CHECK([ovs-vsctl add-br br-test -- set bridge br-test datapath_type=dummy-p4 p4=true other_config:program="test.o"], [0])
+
+OVS_VSWITCHD_STOP
+AT_CLEANUP
+
+AT_SETUP([p4 - setup two P4 bridges, install a P4 program for each of them])
+OVS_VSWITCHD_START
+
+AT_DATA([test.c], [dnl
+#include <stdint.h>
+#include <stdbool.h>
+#include <stddef.h>
+
+uint64_t entry(void *ctx, struct standard_metadata *std_meta){
+   return 0;
+}
+])
+
+AT_CHECK([clang -w -target bpf -c test.c -o test.o])
+
+AT_CHECK([ovs-vsctl add-br br1 -- set bridge br1 datapath_type=dummy-p4 p4=true other_config:program="test.o"], [0])
+AT_CHECK([ovs-vsctl add-br br2 -- set bridge br2 datapath_type=dummy-p4 p4=true other_config:program="test.o"], [0])
+
+OVS_VSWITCHD_STOP
+AT_CLEANUP

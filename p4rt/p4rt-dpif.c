@@ -389,6 +389,13 @@ p4rt_dpif_port_add(struct p4rt *p, struct netdev *netdev, uint16_t requested_por
 }
 
 static int
+p4rt_dpif_port_set_config(const struct p4port *port, const struct smap *cfg)
+{
+    struct p4rt_dpif *p4rt = p4rt_dpif_cast(port->p4rt);
+    return dpif_port_set_config(p4rt->backer->dpif, port->port_no, cfg);
+}
+
+static int
 p4rt_dpif_port_del(struct p4rt *p, uint16_t port_no)
 {
     struct p4rt_dpif *p4rt = p4rt_dpif_cast(p);
@@ -432,7 +439,7 @@ p4rt_dpif_prog_delete(struct program *prog)
     struct p4rt_dpif *p4rt = p4rt_dpif_cast(prog->p4rt);
     struct dpif *dpif = p4rt->backer->dpif;
 
-    dpif->dpif_class->dp_prog_unset(dpif, 0);  /* FIXME: hardcoded prog id. */
+    dpif->dpif_class->dp_prog_unset(dpif, prog->p4rt->dev_id);
 }
 
 static void
@@ -462,6 +469,7 @@ const struct p4rt_class p4rt_dpif_class = {
         p4rt_dpif_port_dealloc,
         p4rt_dpif_port_query_by_name,
         p4rt_dpif_port_add,
+        p4rt_dpif_port_set_config,
         p4rt_dpif_port_del,
         p4rt_dpif_prog_alloc,
         p4rt_dpif_prog_insert,

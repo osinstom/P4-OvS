@@ -148,6 +148,10 @@ struct p4rt_class {
      * convenient. */
     int (*port_add)(struct p4rt *p, struct netdev *netdev, uint16_t port_no);
 
+    /* Refreshes datapath configuration of 'port'.
+     * Returns 0 if successful, otherwise a positive errno value. */
+    int (*port_set_config)(const struct p4port *port, const struct smap *cfg);
+
     /* Deletes port number 'port_no' from the datapath for 'p4rt'.  Returns
      * 0 if successful, otherwise a positive errno value. */
     int (*port_del)(struct p4rt *p4rt, uint16_t port_no);

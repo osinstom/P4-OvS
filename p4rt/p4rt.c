@@ -15,6 +15,7 @@
 #include "hash.h"
 #include "openvswitch/vlog.h"
 #include "ovs-rcu.h"
+#include "smap.h"
 #include "sset.h"
 #include "lib/dpif.h"
 
@@ -242,6 +243,20 @@ p4rt_get_port_by_name(const struct p4rt *p4rt, const char *name)
     return NULL;
 }
 
+static void
+attach_port_to_prog(struct p4port *port, uint64_t prog_id)
+{
+    struct p4rt *p4rt = port->p4rt;
+    if (!strcmp(netdev_get_name(port->netdev), p4rt->name)) {
+        return;
+    }
+
+    struct smap cfg = SMAP_INITIALIZER(&cfg);
+    smap_add_format(&cfg, "program", "%lu", prog_id);
+
+    p4rt->p4rt_class->port_set_config(port, &cfg);
+}
+
 static int
 p4port_install(struct p4rt *p4rt, struct netdev *netdev, ofp_port_t port_no)
 {
@@ -271,9 +286,13 @@ p4port_install(struct p4rt *p4rt, struct netdev *netdev, ofp_port_t port_no)
         goto error;
     }
 
+    if (p4rt->prog) {
+        attach_port_to_prog(p4port, p4rt->dev_id);
+    }
+
     return 0;
 
-    error:
+error:
     VLOG_INFO("%s: could not add port %s (%s)",
               p4rt->name, netdev_name, ovs_strerror(error));
     VLOG_WARN_RL(&rl, "%s: could not add port %s (%s)",
@@ -312,11 +331,20 @@ update_port(struct p4rt *p4rt, const char *name)
             error = p4port_install(p4rt, netdev, p4rt_port.port_no);
         }
     }
+
     p4rt_port_destroy(&p4rt_port);
 
     return error;
 }
 
+static void
+p4rt_attach_ports_to_prog(struct p4rt *p4rt)
+{
+    struct p4port *port;
+    HMAP_FOR_EACH (port, hmap_node, &p4rt->ports) {
+        attach_port_to_prog(port, p4rt->dev_id);
+    }
+}
 
 /* ## ------------------------------------- ## */
 /* ## Functions exposed and used by bridge. ## */
@@ -490,6 +518,8 @@ p4rt_initialize_datapath(struct p4rt *p, const char *filename)
     }
 
     p->prog = prog;
+
+    p4rt_attach_ports_to_prog(p);
 
     return 0;
 
@@ -711,6 +741,8 @@ pi_status_t _pi_update_device_start(pi_dev_id_t dev_id,
     }
 
     p4rt->prog = prog;
+
+    p4rt_attach_ports_to_prog(p4rt);
 
     VLOG_INFO("P4 datapath for device %lu initialized!", dev_id);
 
