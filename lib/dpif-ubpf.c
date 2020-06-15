@@ -24,6 +24,7 @@
 #include "openvswitch/util.h"
 #include "openvswitch/vlog.h"
 #include "ovs-atomic.h"
+#include "smap.h"
 
 VLOG_DEFINE_THIS_MODULE(dpif_ubpf);
 
