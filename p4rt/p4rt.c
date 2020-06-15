@@ -526,7 +526,9 @@ p4rt_initialize_datapath(struct p4rt *p, const char *filename)
 error:
     VLOG_WARN_RL(&rl, "failed to initialize P4 datapath of %s "
                       "with binary from file '%s' (%s)",
-                 p->name, filename, ovs_strerror(error));
+                 p->name, filename,
+                 error == EEXIST ? "Program with a given Device ID already exists"
+                 : ovs_strerror(error));
     if (prog) {
         /* TODO: dealloc program here. */
     } else {
