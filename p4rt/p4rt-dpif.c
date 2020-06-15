@@ -189,8 +189,15 @@ open_p4rt_dpif_backer(const char *type, struct p4rt_dpif_backer **backerp)
     int error;
     struct p4rt_dpif_backer *backer;
     char *backer_name;
-    backer_name = xasprintf("ovs-%s", type);
 
+    backer = shash_find_data(&all_p4rt_dpif_backers, type);
+    if (backer) {
+        backer->refcount++;
+        *backerp = backer;
+        return 0;
+    }
+
+    backer_name = xasprintf("ovs-%s", type);
     backer = xmalloc(sizeof *backer);
 
     error = dpif_create_and_open(backer_name, type, &backer->dpif);
@@ -203,7 +210,7 @@ open_p4rt_dpif_backer(const char *type, struct p4rt_dpif_backer **backerp)
     }
 
     backer->type = xstrdup(type);
-
+    backer->refcount = 1;
     hmap_init(&backer->odp_to_p4port_map);
     ovs_rwlock_init(&backer->odp_to_p4port_lock);
 
@@ -235,6 +242,11 @@ static void
 close_p4rt_dpif_backer(struct p4rt_dpif_backer *backer, bool del)
 {
     /* TODO: handle refcount here. */
+    ovs_assert(backer->refcount > 0);
+
+    if (--backer->refcount) {
+        return;
+    }
 
     ovs_rwlock_destroy(&backer->odp_to_p4port_lock);
     hmap_destroy(&backer->odp_to_p4port_map);

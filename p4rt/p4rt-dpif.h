@@ -10,6 +10,7 @@
 /* All datapaths of a given type share a single dpif backer instance. */
 struct p4rt_dpif_backer {
     char *type;
+    int refcount;
     struct dpif *dpif;
 
     struct ovs_rwlock odp_to_p4port_lock;

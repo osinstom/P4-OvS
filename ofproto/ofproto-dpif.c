@@ -750,6 +750,7 @@ open_dpif_backer(const char *type, struct dpif_backer **backerp)
 
     backer_name = xasprintf("ovs-%s", type);
 
+    /* FIXME: the below code can have a dangerous impact on P4 datapath. */
     /* Remove any existing datapaths, since we assume we're the only
      * userspace controlling the datapath. */
     sset_init(&names);
