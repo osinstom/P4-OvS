@@ -42,7 +42,6 @@ struct ovs_mutex p4rt_mutex = OVS_MUTEX_INITIALIZER;
 /* ## Prototypes for functions. ## */
 /* ## ------------------------- ## */
 
-
 struct p4port *p4rt_get_port(const struct p4rt *p4rt, ofp_port_t port_no);
 int p4rt_class_register(const struct p4rt_class *new_class);
 static void p4port_destroy(struct p4port *, bool del);
@@ -163,6 +162,30 @@ alloc_p4rt_port(struct p4rt *p4rt OVS_UNUSED, const char *netdev_name OVS_UNUSED
 {
     /* TODO: get next port number from the pool. */
     return u16_to_ofp(1);
+}
+
+static uint64_t
+p4rt_assign_dev_id(void)
+{
+    uint64_t dev_id_to_use = 0, alloc_port_no = 0;
+
+    /* Get the first dev_id, which is not used by any p4rt. */
+    for (;;) {
+        /* Start from the beginning if we reached MAX_PROGS. */
+        if (alloc_port_no >= MAX_PROGS-1) {
+            dev_id_to_use = UINT64_MAX;
+            break;
+        }
+
+        struct p4rt *p = p4rt_lookup_by_dev_id(alloc_port_no);
+        if (!p) {
+            dev_id_to_use = alloc_port_no;
+            break;
+        }
+        alloc_port_no++;
+    }
+
+    return dev_id_to_use;
 }
 
 static int
@@ -427,6 +450,7 @@ p4rt_create(const char *datapath_name, const char *datapath_type,
     const struct p4rt_class *class;
     int error;
     struct p4rt *p4rt;
+    uint64_t dev_id;
     *p4rtp = NULL;
 
     datapath_type = dpif_normalize_type(datapath_type);
@@ -435,6 +459,13 @@ p4rt_create(const char *datapath_name, const char *datapath_type,
         VLOG_WARN("could not create datapath %s of unknown type %s",
                   datapath_name, datapath_type);
         return EAFNOSUPPORT;
+    }
+
+    dev_id = p4rt_assign_dev_id();
+    if (dev_id == UINT64_MAX) {
+        VLOG_ERR("failed to allocate Device ID for %s",
+                 datapath_name);
+        return EBUSY;
     }
 
     p4rt = class->alloc();
@@ -451,8 +482,7 @@ p4rt_create(const char *datapath_name, const char *datapath_type,
     p4rt->name = xstrdup(datapath_name);
 
     p4rt->p4info = NULL;
-    /* TODO: 0 is hardcoded, need to assign device id dynamically. */
-    p4rt->dev_id = 0;
+    p4rt->dev_id = dev_id;
     p4rt->type = xstrdup(datapath_type);
     hmap_insert(&all_p4rts, &p4rt->hmap_node,
     hash_string(p4rt->name, 0));
@@ -520,6 +550,8 @@ p4rt_initialize_datapath(struct p4rt *p, const char *filename)
     p->prog = prog;
 
     p4rt_attach_ports_to_prog(p);
+
+    VLOG_INFO("Added P4 program as Device ID %lu", p->dev_id);
 
     return 0;
 

@@ -431,7 +431,7 @@ p4rt_dpif_prog_insert(struct program *prog)
     struct dpif *dpif = p4rt->backer->dpif;
 
     struct dpif_prog dpif_prog = {
-            .id = 0,
+            .id = p4rt->up.dev_id,
             .data = prog->data,
             .data_len = prog->data_len,
     };

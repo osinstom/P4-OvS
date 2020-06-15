@@ -94,6 +94,16 @@ a port number must be unique for a given bridge. For P4-OvS a user must request 
 
 **Note!** If a user will specify a port number, which is already in use P4-OvS will return an error and will allocate a new port number.
 
+### Support for multiple P4 programs
+
+According to the requirements each P4 bridge should have its unique, independent P4 program. The P4Runtime specification
+uses the `device_id` field to distinguish different P4 devices controlled by the same P4Runtime server. **In case of P4-OvS
+each P4 bridge is identified by the `device_id`**. This approach makes P4-OvS in line with P4Runtime specification.
+
+**Note!** The PoC version uses `device_id` to identify P4 program at the datapath level too. 
+It works as far as we use only one P4 datapath (e.g. uBPF).
+For further releases there should be the mapping between `device_id` and `program_id` used by datapath provided. 
+
 ## Usage
 
 P4-OvS follows the usage model of Open vSwitch. The bridge and ports are configured with `ovs-vsctl`. 

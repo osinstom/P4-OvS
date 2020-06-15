@@ -4,6 +4,8 @@
 #include <PI/p4info.h>
 #include "openvswitch/hmap.h"
 
+#define MAX_PROGS 256
+
 struct p4rt {
     struct hmap_node hmap_node; /* In global 'all_p4rts' hmap. */
     const struct p4rt_class *p4rt_class;
