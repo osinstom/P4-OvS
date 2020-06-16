@@ -4,6 +4,7 @@
 #include <PI/p4info.h>
 #include "openvswitch/hmap.h"
 
+/* According to PI library 256 is the maximum number of P4 devices. */
 #define MAX_PROGS 256
 
 struct p4rt {

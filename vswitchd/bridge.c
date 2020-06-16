@@ -941,7 +941,8 @@ bridge_reconfigure(const struct ovsrec_open_vswitch *ovs_cfg)
         }
         if (br->p4 && !br->p4rt) {
             int error;
-            error = p4rt_create(br->name, br->type, &br->p4rt);
+            uint64_t device_id = smap_get_ullong(&br->cfg->other_config, "device_id", UINT64_MAX);
+            error = p4rt_create(br->name, br->type, device_id, &br->p4rt);
 
             if (!error) {
                 error = bridge_configure_p4_datapath(br);

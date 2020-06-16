@@ -1546,6 +1546,11 @@
           implements packet processing pipeline of P4 datapath.
         </p>
       </column>
+      <column name="other_config" key="device_id">
+        <p>
+          Specifies a P4 device identifier. Used by P4Runtime to identify a P4 bridge.
+        </p>
+      </column>
     </group>
 
     <group title="Multicast Snooping Configuration">

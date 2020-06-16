@@ -43,9 +43,6 @@ struct dp_ubpf {
     struct dp_netdev dp_netdev;
     const char *const name;
 
-    /* Data plane program. */
-    struct dp_prog *prog;
-
     /* Stores the association between an dp_netdev's port and associated uBPF program. */
     struct cmap dp_progs_port_map;
 };
@@ -319,7 +316,6 @@ create_dp_ubpf(const char *name, const struct dpif_class *class,
     shash_add(&dp_ubpfs, name, dp);
 
     *CONST_CAST(const char **, &dp->name) = xstrdup(name);
-    dp->prog = NULL;
     cmap_init(&dp->dp_progs_port_map);
 
     *dpp = dp;
@@ -355,7 +351,9 @@ dpif_ubpf_close(struct dpif *dpif)
     struct dpif_ubpf *dpif_ubpf = dpif_ubpf_cast(dpif);
     struct dp_ubpf *dp = dpif_ubpf->dp;
 
+    ovs_mutex_lock(&dp_prog_mutex);
     cmap_destroy(&dp->dp_progs_port_map);
+    ovs_mutex_unlock(&dp_prog_mutex);
     shash_find_and_delete(&dp_ubpfs, dp->name);
     free(CONST_CAST(char *, dp->name));
 
@@ -384,31 +382,30 @@ dpif_ubpf_port_set_config(struct dpif *dpif, odp_port_t port_no,
 
     ovs_mutex_lock(&dp_prog_mutex);
     struct dp_prog *prog = dp_progs[prog_no];
-    ovs_mutex_unlock(&dp_prog_mutex);
-
     cmap_insert(&dp_ubpf->dp_progs_port_map, &prog->cmap_node,
                 hash_int(port_no, 0));
-
+    ovs_mutex_unlock(&dp_prog_mutex);
     return 0;
 }
 
 static int
-dp_prog_set(struct dpif *dpif, struct dpif_prog prog)
+dp_prog_set(struct dpif *dpif OVS_UNUSED, struct dpif_prog prog)
 {
-    struct dp_ubpf *dp_ubpf = dpif_ubpf_cast(dpif)->dp;
     struct dp_prog *dp_prog;
 
     ovs_mutex_lock(&dp_prog_mutex);
     dp_prog = dp_progs[prog.id];
-    ovs_mutex_unlock(&dp_prog_mutex);
+
     if (dp_prog) {
         /* P4 program with a given ID exists. */
+        ovs_mutex_unlock(&dp_prog_mutex);
         return EEXIST;
     }
 
     struct ubpf_vm *vm = create_ubpf_vm(prog.id);
     if (!load_bpf_prog(vm, prog.data_len, prog.data)) {
         ubpf_destroy(vm);
+        ovs_mutex_unlock(&dp_prog_mutex);
         return -1; /* FIXME: not sure what to return. */
     }
 
@@ -416,13 +413,6 @@ dp_prog_set(struct dpif *dpif, struct dpif_prog prog)
     dp_prog->id = prog.id;
     dp_prog->vm = vm;
 
-    if (dp_ubpf->prog) {
-        free(dp_ubpf->prog);
-        dp_ubpf->prog = NULL;
-    }
-    dp_ubpf->prog = dp_prog;
-
-    ovs_mutex_lock(&dp_prog_mutex);
     dp_progs[prog.id] = dp_prog;
     ovs_mutex_unlock(&dp_prog_mutex);
 
@@ -432,8 +422,10 @@ dp_prog_set(struct dpif *dpif, struct dpif_prog prog)
 static void
 dp_prog_destroy_(struct dp_prog *prog)
 {
-    ubpf_destroy(prog->vm);
-    free(prog);
+    if (prog) {
+        ubpf_destroy(prog->vm);
+        free(prog);
+    }
 }
 
 static void
@@ -450,8 +442,10 @@ dp_prog_unset(struct dpif *dpif OVS_UNUSED, uint32_t prog_id)
         return;
     }
 
+    ovs_mutex_lock(&dp_prog_mutex);
     dp_prog_destroy_(prog);
     dp_progs[prog_id] = NULL;
+    ovs_mutex_unlock(&dp_prog_mutex);
 }
 
 const struct dpif_class dpif_ubpf_class = {

@@ -142,6 +142,8 @@ p4rt_program_destroy(struct program *prog)
 {
     if (prog) {
         prog->p4rt->p4rt_class->prog_del(prog);
+
+        free(prog->data);
         prog->p4rt->p4rt_class->prog_dealloc(prog);
     }
 }
@@ -165,8 +167,21 @@ alloc_p4rt_port(struct p4rt *p4rt OVS_UNUSED, const char *netdev_name OVS_UNUSED
 }
 
 static uint64_t
-p4rt_assign_dev_id(void)
+p4rt_assign_dev_id(uint64_t requested_dev_id)
 {
+    struct p4rt *p;
+
+    p = p4rt_lookup_by_dev_id(requested_dev_id);
+    if (!p && requested_dev_id < MAX_PROGS) {
+        /* Requested device ID is free, we can use it. */
+        return requested_dev_id;
+    } else if (requested_dev_id != UINT64_MAX) {
+        /* Default value is not provided.
+         * It means user did provide ID, which is already taken.
+         * We should fail in such case. */
+        return UINT64_MAX;
+    }
+
     uint64_t dev_id_to_use = 0, alloc_port_no = 0;
 
     /* Get the first dev_id, which is not used by any p4rt. */
@@ -177,7 +192,7 @@ p4rt_assign_dev_id(void)
             break;
         }
 
-        struct p4rt *p = p4rt_lookup_by_dev_id(alloc_port_no);
+        p = p4rt_lookup_by_dev_id(alloc_port_no);
         if (!p) {
             dev_id_to_use = alloc_port_no;
             break;
@@ -278,6 +293,7 @@ attach_port_to_prog(struct p4port *port, uint64_t prog_id)
     smap_add_format(&cfg, "program", "%lu", prog_id);
 
     p4rt->p4rt_class->port_set_config(port, &cfg);
+    smap_destroy(&cfg);
 }
 
 static int
@@ -444,7 +460,7 @@ p4rt_wait(struct p4rt *p)
 
 int
 p4rt_create(const char *datapath_name, const char *datapath_type,
-            struct p4rt **p4rtp)
+            uint64_t requested_dev_id, struct p4rt **p4rtp)
     OVS_EXCLUDED(p4rt_mutex)
 {
     const struct p4rt_class *class;
@@ -461,7 +477,7 @@ p4rt_create(const char *datapath_name, const char *datapath_type,
         return EAFNOSUPPORT;
     }
 
-    dev_id = p4rt_assign_dev_id();
+    dev_id = p4rt_assign_dev_id(requested_dev_id);
     if (dev_id == UINT64_MAX) {
         VLOG_ERR("failed to allocate Device ID for %s",
                  datapath_name);
@@ -551,7 +567,7 @@ p4rt_initialize_datapath(struct p4rt *p, const char *filename)
 
     p4rt_attach_ports_to_prog(p);
 
-    VLOG_INFO("Added P4 program as Device ID %lu", p->dev_id);
+    VLOG_INFO("Added P4 program as Device ID %lu for %s", p->dev_id, p->name);
 
     return 0;
 
