@@ -375,6 +375,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <PI/p4info.h>
 
 #include "dpdk.h"
 #include "dp-packet.h"
@@ -894,8 +895,12 @@ int dpif_meter_del(struct dpif *, ofproto_meter_id meter_id,
 
 /* P4 datapath. */
 struct dpif_prog {
-    const ovs_be16 id;
-    char *data;
+    const uint32_t id;
+
+    const pi_p4info_t *p4info; /* P4Info. This may be sometimes used by
+                                * datapath to map P4Info objects` IDs
+                                * to internal IDs used to program P4 pipeline. */
+    const char *data;
     size_t data_len;
 };
 

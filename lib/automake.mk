@@ -10,6 +10,7 @@ lib_LTLIBRARIES += lib/libopenvswitch.la
 lib_libopenvswitch_la_LIBADD = $(SSL_LIBS)
 lib_libopenvswitch_la_LIBADD += $(CAPNG_LDADD)
 lib_libopenvswitch_la_LIBADD += $(LIBBPF_LDADD)
+lib_libopenvswitch_la_LIBADD += -lpip4info
 
 if WIN32
 lib_libopenvswitch_la_LIBADD += ${PTHREAD_LIBS}
@@ -254,6 +255,7 @@ lib_libopenvswitch_la_SOURCES = \
 	lib/ovsdb-types.h \
 	lib/ox-stat.c \
 	lib/ox-stat.h \
+	lib/p4rt-objects.h \
 	lib/packets.c \
 	lib/packets.h \
 	lib/pcap-file.c \

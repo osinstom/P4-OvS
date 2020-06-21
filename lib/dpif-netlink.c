@@ -4005,6 +4005,7 @@ const struct dpif_class dpif_netlink_class = {
     dpif_netlink_meter_del,
     NULL,
     NULL,
+    NULL,
 };
 
 static int

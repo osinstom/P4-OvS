@@ -3,6 +3,7 @@
 
 #include <PI/p4info.h>
 #include "openvswitch/hmap.h"
+#include "lib/p4rt-objects.h"
 
 /* According to PI library 256 is the maximum number of P4 devices. */
 #define MAX_PROGS 256
@@ -14,7 +15,7 @@ struct p4rt {
     char *type;                 /* Datapath type. */
     char *name;                 /* Datapath name. */
 
-    pi_p4info_t *p4info;        /* P4Info describing a P4 program. */
+    const pi_p4info_t *p4info;        /* P4Info describing a P4 program. */
     uint64_t dev_id;            /* Device ID used by P4Runtime to identify bridge. */
 
     /* Datapath. */
@@ -40,6 +41,7 @@ struct p4port {
 struct program {
     struct p4rt *const p4rt;
 
+    const pi_p4info_t *p4info;        /* P4Info describing a P4 program. */
     void *data;               /* Target-specific representation of P4 program */
     size_t data_len;
 };
@@ -168,6 +170,13 @@ struct p4rt_class {
     int (*program_insert)(struct program *prog);
     void (*prog_del)(struct program *prog);
     void (*prog_dealloc)(struct program *prog);
+
+/* ## ------------------------ ## */
+/* ## P4 Table Entry functions ## */
+/* ## ------------------------ ## */
+
+    int (*entry_add)(struct p4rt *p, struct p4rtutil_table_entry *entry);
+    void (*entry_del)(struct p4rt *p);
 
 };
 

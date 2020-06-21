@@ -6,6 +6,7 @@
 #include <PI/int/pi_int.h>
 #include <PI/pi.h>
 #include <PI/target/pi_imp.h>
+#include <PI/target/pi_tables_imp.h>
 
 #include "netdev.h"
 #include "p4rt.h"
@@ -18,6 +19,7 @@
 #include "smap.h"
 #include "sset.h"
 #include "lib/dpif.h"
+#include "lib/p4rt-objects.h"
 
 VLOG_DEFINE_THIS_MODULE(p4rt);
 
@@ -142,8 +144,6 @@ p4rt_program_destroy(struct program *prog)
 {
     if (prog) {
         prog->p4rt->p4rt_class->prog_del(prog);
-
-        free(prog->data);
         prog->p4rt->p4rt_class->prog_dealloc(prog);
     }
 }
@@ -740,7 +740,7 @@ p4rt_prog_del(struct p4rt *p)
 /* ## ------------- ## */
 
 
-pi_status_t _pi_assign_device(pi_dev_id_t dev_id, const pi_p4info_t *p4info,
+pi_status_t _pi_assign_device(pi_dev_id_t dev_id, const pi_p4info_t *p4info OVS_UNUSED,
                               pi_assign_extra_t *extra OVS_UNUSED) {
 
     struct p4rt *p4rt = p4rt_lookup_by_dev_id(dev_id);
@@ -750,17 +750,13 @@ pi_status_t _pi_assign_device(pi_dev_id_t dev_id, const pi_p4info_t *p4info,
         return PI_STATUS_DEV_NOT_ASSIGNED;
     }
 
-    ovs_mutex_lock(&p4rt_mutex);
-    p4rt->p4info = CONST_CAST(pi_p4info_t *, p4info);
-    ovs_mutex_unlock(&p4rt_mutex);
-
     VLOG_INFO("P4 device %lu assigned.", dev_id);
 
     return PI_STATUS_SUCCESS;
 }
 
 pi_status_t _pi_update_device_start(pi_dev_id_t dev_id,
-                                    const pi_p4info_t *p4info OVS_UNUSED,
+                                    const pi_p4info_t *p4info,
                                     const char *device_data,
                                     size_t device_data_size) {
     int error;
@@ -784,13 +780,18 @@ pi_status_t _pi_update_device_start(pi_dev_id_t dev_id,
     *CONST_CAST(struct p4rt **, &prog->p4rt) = p4rt;
     prog->data = CONST_CAST(char *, device_data);
     prog->data_len = device_data_size;
+    prog->p4info = p4info;
+
 
     error = p4rt->p4rt_class->program_insert(prog);
     if (error) {
         goto error;
     }
 
+    ovs_mutex_lock(&p4rt_mutex);
     p4rt->prog = prog;
+    p4rt->p4info = p4info;
+    ovs_mutex_unlock(&p4rt_mutex);
 
     p4rt_attach_ports_to_prog(p4rt);
 
@@ -806,6 +807,38 @@ error:
     }
 
     return PI_STATUS_TARGET_ERROR;
+}
+
+pi_status_t _pi_table_entry_add(pi_session_handle_t session_handle OVS_UNUSED,
+                                pi_dev_tgt_t dev_tgt, pi_p4_id_t table_id,
+                                const pi_match_key_t *match_key,
+                                const pi_table_entry_t *table_entry,
+                                int overwrite OVS_UNUSED,
+                                pi_entry_handle_t *entry_handle OVS_UNUSED) {
+    int error;
+    struct p4rtutil_table_entry entry;
+
+    struct p4rt *p4rt = p4rt_lookup_by_dev_id(dev_tgt.dev_id);
+    if (!p4rt) {
+        /* P4 Device does not exist. */
+        return PI_STATUS_DEV_OUT_OF_RANGE;
+    }
+
+    entry.table_id = table_id;
+    entry.action_id = table_entry->entry.action_data->action_id;
+    entry.match_key = match_key->data;
+    entry.key_size = match_key->data_size;
+    entry.action_data = table_entry->entry.action_data->data;
+    entry.data_size = table_entry->entry.action_data->data_size;
+
+    error = p4rt->p4rt_class->entry_add(p4rt, &entry);
+    if (error) {
+        VLOG_WARN_RL(&rl, "failed to insert P4 table entry to device %lu (%s)",
+                     dev_tgt.dev_id, ovs_strerror(error));
+        return PI_STATUS_TARGET_ERROR;
+    }
+
+    return PI_STATUS_SUCCESS;
 }
 
 /* ## ------------------------------- ## */

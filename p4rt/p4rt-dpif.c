@@ -26,7 +26,7 @@ struct p4port_dpif {
 struct program_dpif {
     struct program up;
 
-    ovs_be16 id;
+    uint32_t id;
     /* TODO: other datapath-specific fields. */
 };
 
@@ -404,7 +404,7 @@ static int
 p4rt_dpif_port_set_config(const struct p4port *port, const struct smap *cfg)
 {
     struct p4rt_dpif *p4rt = p4rt_dpif_cast(port->p4rt);
-    return dpif_port_set_config(p4rt->backer->dpif, port->port_no, cfg);
+    return dpif_port_set_config(p4rt->backer->dpif, u32_to_odp(ofp_to_u16(port->port_no)), cfg);
 }
 
 static int
@@ -432,15 +432,17 @@ p4rt_dpif_prog_insert(struct program *prog)
 
     struct dpif_prog dpif_prog = {
             .id = p4rt->up.dev_id,
+            .p4info = prog->p4info,
             .data = prog->data,
             .data_len = prog->data_len,
     };
 
     error = dpif->dpif_class->dp_prog_set(dpif, dpif_prog);
-
-    if (!error) {
-        prog_dpif->id = dpif_prog.id;
+    if (error) {
+        return error;
     }
+
+    prog_dpif->id = dpif_prog.id;
 
     return error;
 }
@@ -459,6 +461,24 @@ p4rt_dpif_prog_dealloc(struct program *prog)
 {
     struct program_dpif *prog_dpif = p4program_dpif_cast(prog);
     free(prog_dpif);
+}
+
+static int
+p4rt_dpif_entry_add(struct p4rt *p, struct p4rtutil_table_entry *entry)
+{
+    struct p4rt_dpif *p4rt = p4rt_dpif_cast(p);
+    struct dpif *dpif = p4rt->backer->dpif;
+
+    return dpif->dpif_class->dp_table_entry_add(dpif, p->dev_id, entry->table_id,
+                                                entry->action_id,
+                                                entry->match_key, entry->key_size, entry->action_data,
+                                                entry->data_size);
+}
+
+static void
+p4rt_dpif_entry_del(struct p4rt *p OVS_UNUSED)
+{
+
 }
 
 const struct p4rt_class p4rt_dpif_class = {
@@ -487,4 +507,6 @@ const struct p4rt_class p4rt_dpif_class = {
         p4rt_dpif_prog_insert,
         p4rt_dpif_prog_delete,
         p4rt_dpif_prog_dealloc,
+        p4rt_dpif_entry_add,
+        p4rt_dpif_entry_del,
 };

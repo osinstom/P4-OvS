@@ -35,8 +35,13 @@ VLOG_DEFINE_THIS_MODULE(dpif_ubpf);
 struct dp_prog {
     struct cmap_node cmap_node; /* Within dp_ubpf.dp_progs_port_map */
 
-    ovs_be16 id;
+    uint32_t id;
     struct ubpf_vm *vm;
+
+    const pi_p4info_t *p4info;
+
+    struct hmap table_ids;   /* Provide mapping between table IDs used by Control Plane API and uBPF */
+    struct hmap action_ids;  /* Provide mapping between action IDs used by Control Plane API and uBPF */
 };
 
 struct dp_ubpf {
@@ -64,6 +69,18 @@ struct dp_netdev_action_flow {
 struct packet_batch_per_action {
     struct dp_packet_batch output_batch;
     struct dp_netdev_action_flow *action;
+};
+
+struct dpif_table_id {
+    struct hmap_node hmap_node;
+    uint32_t table_id;
+    uint32_t dp_table_id;
+};
+
+struct dpif_action_id {
+    struct hmap_node hmap_node;
+    uint32_t action_id;
+    uint32_t dp_action_id;
 };
 
 /* ## ------------------------------------------ ## */
@@ -104,6 +121,48 @@ static struct dpif_ubpf *
 dpif_ubpf_cast(const struct dpif *dpif)
 {
     return CONTAINER_OF(dpif, struct dpif_ubpf, dpif_netdev.dpif);
+}
+
+static int
+translate_table_id(struct dp_prog *prog, uint32_t *table_id)
+{
+    struct dpif_table_id *tbl;
+    uint32_t id = *table_id;
+
+    HMAP_FOR_EACH_WITH_HASH (tbl, hmap_node, hash_int(id, 0),
+                             &prog->table_ids) {
+        if (tbl->table_id == id) {
+            *table_id = tbl->dp_table_id;
+        }
+    }
+
+    return id == *table_id;
+}
+
+static int
+translate_action_id(struct dp_prog *prog, uint32_t *action_id)
+{
+    struct dpif_action_id *act;
+    uint32_t id = *action_id;
+
+    HMAP_FOR_EACH_WITH_HASH (act, hmap_node, hash_int(id, 0),
+                             &prog->action_ids) {
+        if (act->action_id == id) {
+            *action_id = act->dp_action_id;
+        }
+    }
+
+    return id == *action_id;
+}
+
+static const char*
+replace_char(const char* str, char find, char replace){
+    char *current_pos = strchr(str,find);
+    while (current_pos){
+        *current_pos = replace;
+        current_pos = strchr(current_pos,find);
+    }
+    return str;
 }
 
 /* ## ----------------------------------------- ## */
@@ -209,7 +268,7 @@ get_dp_prog(struct dp_ubpf *dp, odp_port_t in_port)
     struct dp_prog *prog;
     const struct cmap_node *node;
 
-    uint32_t hash = hash_int(in_port, 0);
+    uint32_t hash = hash_int(odp_to_u32(in_port), 0);
     node = cmap_find(&dp->dp_progs_port_map, hash);
     if (!node) {
         return NULL;
@@ -383,8 +442,48 @@ dpif_ubpf_port_set_config(struct dpif *dpif, odp_port_t port_no,
     ovs_mutex_lock(&dp_prog_mutex);
     struct dp_prog *prog = dp_progs[prog_no];
     cmap_insert(&dp_ubpf->dp_progs_port_map, &prog->cmap_node,
-                hash_int(port_no, 0));
+                hash_int(odp_to_u32(port_no), 0));
     ovs_mutex_unlock(&dp_prog_mutex);
+    return 0;
+}
+
+static int
+dp_prog_set_mappings(struct dp_prog *prog, const pi_p4info_t *p4info)
+{
+    struct ubpf_vm *vm = prog->vm;
+
+    for (pi_p4_id_t id = pi_p4info_table_begin(p4info);
+         id != pi_p4info_table_end(p4info);
+         id = pi_p4info_table_next(p4info, id)) {
+        VLOG_INFO("Table ID %u", id);
+
+        const char *tbl_name = pi_p4info_table_name_from_id(p4info, id);
+
+        /* Convert name provided by P4Info to adjust it to uBPF's naming convention. */
+        const char *tbl = replace_char(tbl_name, '.', '_');
+
+        struct ubpf_map *map = ubpf_lookup_registered_map(vm, tbl);
+        struct dpif_table_id *tbl_id = xzalloc(sizeof *tbl_id);
+        tbl_id->table_id = id;
+        tbl_id->dp_table_id = map->id;
+        hmap_insert(&prog->table_ids, &tbl_id->hmap_node, hash_int(id, 0));
+        VLOG_INFO("Table '%s' ID mapping inserted %u <-> %d", tbl, id, map->id);
+
+        size_t num_actions;
+        int act_id = 0;
+        const pi_p4_id_t *actions = pi_p4info_table_get_actions(p4info, id, &num_actions);
+        for (int i = 0; i < num_actions; i++) {
+            pi_p4_id_t action = actions[i];
+            struct dpif_action_id *action_id = xzalloc(sizeof *action_id);
+            /* The order of Actions in uBPF program is the same as the order of actions in P4 program. */
+            action_id->action_id = action;
+            action_id->dp_action_id = act_id;
+            hmap_insert(&prog->action_ids, &action_id->hmap_node, hash_int(action, 0));
+            VLOG_INFO("Action ID mapping inserted %u <-> %d", action, act_id);
+            act_id++;
+        }
+    }
+
     return 0;
 }
 
@@ -402,7 +501,7 @@ dp_prog_set(struct dpif *dpif OVS_UNUSED, struct dpif_prog prog)
         return EEXIST;
     }
 
-    struct ubpf_vm *vm = create_ubpf_vm(prog.id);
+    struct ubpf_vm *vm = create_ubpf_vm((OVS_FORCE const ovs_be16) prog.id);
     if (!load_bpf_prog(vm, prog.data_len, prog.data)) {
         ubpf_destroy(vm);
         ovs_mutex_unlock(&dp_prog_mutex);
@@ -412,9 +511,14 @@ dp_prog_set(struct dpif *dpif OVS_UNUSED, struct dpif_prog prog)
     dp_prog = xzalloc(sizeof *dp_prog);
     dp_prog->id = prog.id;
     dp_prog->vm = vm;
+    dp_prog->p4info = prog.p4info;
+    hmap_init(&dp_prog->table_ids);
+    hmap_init(&dp_prog->action_ids);
 
     dp_progs[prog.id] = dp_prog;
     ovs_mutex_unlock(&dp_prog_mutex);
+
+    dp_prog_set_mappings(dp_prog, prog.p4info);
 
     return 0;
 }
@@ -443,9 +547,116 @@ dp_prog_unset(struct dpif *dpif OVS_UNUSED, uint32_t prog_id)
     }
 
     ovs_mutex_lock(&dp_prog_mutex);
+    hmap_destroy(&prog->table_ids);
+    hmap_destroy(&prog->action_ids);
     dp_prog_destroy_(prog);
     dp_progs[prog_id] = NULL;
     ovs_mutex_unlock(&dp_prog_mutex);
+}
+
+static char *
+build_key(struct ubpf_map *map, const char *match_key, size_t key_size)
+{
+    char *key = xzalloc(map->key_size);
+    memset(key, 0, map->key_size);
+    /* Fill the key with data from `match_key`.
+     * According to PI documentation match_key is provided in a network-byte order.
+     * so that we need to reverse the byte array. */
+    int offset = map->key_size - key_size;
+    int k_idx = map->key_size - 1 - offset;
+    for (int i = 0; i < key_size; i++) {
+        key[k_idx] = match_key[i];
+        k_idx--;
+    }
+
+    return key;
+}
+
+/* The structure of map value should be as follows:
+ * ACTION_ID (4 bytes) [ACTION_DATA]
+ * The total width of map value equals the width of the largest possible map value.
+ * The total width is stored in `map->value_size'.
+ * */
+static uint8_t *
+construct_map_value(struct dp_prog *prog, struct ubpf_map *map, uint32_t action_id, const char *action_data, size_t data_size)
+{
+    const pi_p4info_t *p4info = prog->p4info;
+    uint8_t *value = xzalloc(map->value_size);
+    memset(value, 0, map->value_size);
+
+    if (data_size > 0) {
+        int v_idx = 4; /* First 4 bytes are allocated for "action_id". */
+        size_t num_params;
+        const pi_p4_id_t *param_ids = pi_p4info_action_get_params(p4info, action_id,
+                                                                  &num_params);
+        for (size_t i = 0; i < num_params; i++) {
+            pi_p4_id_t p_id = param_ids[i];
+            size_t p_bw = pi_p4info_action_param_bitwidth(p4info, action_id, p_id);
+            size_t nbytes = (p_bw + 7) / 8;
+
+            /* Fill the value with data from `action_data`.
+             * uBPF requires to have value data in reversed order.
+             * */
+            for (int k = 0; k < nbytes; k++) {
+                value[k + v_idx] = (uint8_t) (action_data[nbytes - k - 1]);
+            }
+
+            v_idx += nbytes;
+            action_data += nbytes;
+        }
+    }
+
+    translate_action_id(prog, &action_id);
+    memcpy(value, &action_id, sizeof(uint32_t));
+
+    return value;
+}
+
+
+
+static int
+dp_table_entry_add(struct dpif *dpif OVS_UNUSED, uint32_t prog_id,
+                   uint32_t table_id,
+                   uint32_t action_id,
+                   const char *match_key, size_t key_size,
+                   const char *action_data, size_t data_size)
+{
+    int error;
+    struct dp_prog *prog;
+
+    ovs_mutex_lock(&dp_prog_mutex);
+    prog = dp_progs[prog_id];
+    ovs_mutex_unlock(&dp_prog_mutex);
+
+    if (!prog) {
+        /* uBPF program is not installed. */
+        return EEXIST;
+    }
+
+    error = translate_table_id(prog, &table_id);
+    if (error) {
+        VLOG_WARN("Datapath cannot translate table ID.");
+        return EEXIST;
+    }
+
+    struct ubpf_vm *vm = prog->vm;
+
+    struct ubpf_map *map = vm->ext_maps[table_id];
+    if (!map) {
+        VLOG_WARN("Table %d does not exist.", table_id);
+        return EEXIST;
+    }
+
+    void *key = (void *) build_key(map, match_key, key_size);
+    void *value = (void *) construct_map_value(prog, map, action_id, action_data, data_size);
+    error = ubpf_map_update(map, key, value);
+    if (error) {
+        VLOG_WARN("ubpf: the update_map() operation failed (status=%d).", error);
+        /* FIXME: not sure what to return. */
+        return -1;
+    }
+
+    return 0;
 }
 
 const struct dpif_class dpif_ubpf_class = {
@@ -523,4 +734,5 @@ const struct dpif_class dpif_ubpf_class = {
         NULL,
         dp_prog_set,
         dp_prog_unset,
+        dp_table_entry_add,
 };

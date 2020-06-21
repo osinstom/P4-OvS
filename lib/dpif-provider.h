@@ -22,9 +22,12 @@
  * exposed over OpenFlow as a single switch.  Datapaths and the collections of
  * ports that they contain may be fixed or dynamic. */
 
+#include <PI/p4info.h>
+
 #include "openflow/openflow.h"
 #include "dpif.h"
 #include "util.h"
+
 
 #ifdef  __cplusplus
 extern "C" {
@@ -102,7 +105,6 @@ struct dpif_ipf_status {
    unsigned int nfrag;
    unsigned int nfrag_max;
 };
-
 
 /* Datapath interface class structure, to be defined by each implementation of
  * a datapath interface.
@@ -623,6 +625,13 @@ struct dpif_class {
 
     /* Removes a data plane program `prog_id` from `dpif`. */
     void (*dp_prog_unset)(struct dpif *, uint32_t prog_id);
+
+    int (*dp_table_entry_add)(struct dpif *, uint32_t prog_id,
+                              uint32_t table_id,
+                              uint32_t action_id,
+                              const char *match_key, size_t key_size,
+                              const char *action_data, size_t data_size);
+
 };
 
 extern const struct dpif_class dpif_netlink_class;

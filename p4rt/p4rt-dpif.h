@@ -27,7 +27,7 @@ struct p4rt_dpif {
 
     /* Ports. */
     struct sset ports;             /* Set of standard port names. */
-
 };
+
 
 #endif /* p4rt-dpif.h */

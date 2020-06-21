@@ -85,6 +85,8 @@ struct ubpf_map_ops {
 };
 
 struct ubpf_map {
+    uint16_t id;
+    const char *name;
     enum ubpf_map_type type;
     struct ubpf_map_ops ops;
     unsigned int key_size;

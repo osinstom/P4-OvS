@@ -2,22 +2,6 @@
 #include <stdio.h>
 #include <PI/target/pi_tables_imp.h>
 
-pi_status_t _pi_table_entry_add(pi_session_handle_t session_handle,
-                                pi_dev_tgt_t dev_tgt, pi_p4_id_t table_id,
-                                const pi_match_key_t *match_key,
-                                const pi_table_entry_t *table_entry,
-                                int overwrite,
-                                pi_entry_handle_t *entry_handle) {
-    (void)session_handle;
-    (void)dev_tgt;
-    (void)table_id;
-    (void)match_key;
-    (void)table_entry;
-    (void)overwrite;
-    (void)entry_handle;
-    printf("Adding entry to P4-OvS");
-    return PI_STATUS_SUCCESS;
-}
 
 pi_status_t _pi_table_default_action_set(pi_session_handle_t session_handle,
                                          pi_dev_tgt_t dev_tgt,
