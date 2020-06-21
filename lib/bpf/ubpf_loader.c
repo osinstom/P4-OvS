@@ -324,9 +324,12 @@ ubpf_load_elf(struct ubpf_vm *vm, const void *elf, size_t elf_size, char **errms
                             *errmsg = ubpf_error("failed to register variable '%s'", sym_name);
                             goto error_map;
                         }
+
+                        map->id = vm->nb_maps - 1; // nb_maps has been incremented by ubpf_register_map().
+                        map->name = sym_name;
                     }
 
-                    struct ebpf_inst *inst1 = (struct ebpf_inst *) ((uint64_t *) text_copy + r->r_offset);
+                    struct ebpf_inst *inst1 = (struct ebpf_inst *) ((char *) text_copy + r->r_offset);
                     inst1->src = BPF_PSEUDO_MAP_FD;
                     inst1->imm = (uint32_t)((uint64_t)map);
                     struct ebpf_inst *inst2 = inst1 + 1;
