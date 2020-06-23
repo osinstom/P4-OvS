@@ -42,7 +42,7 @@ struct program {
     struct p4rt *const p4rt;
 
     const pi_p4info_t *p4info;        /* P4Info describing a P4 program. */
-    void *data;               /* Target-specific representation of P4 program */
+    const char *data;               /* Target-specific representation of P4 program */
     size_t data_len;
 };
 

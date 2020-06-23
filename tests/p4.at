@@ -13,11 +13,25 @@ AT_CLEANUP
 AT_SETUP([p4 - setup P4 bridge, bad P4 program provided])
 OVS_VSWITCHD_START
 
-AT_CHECK([touch test.o])
-AT_CHECK([ovs-vsctl add-br br-test -- set bridge br-test datapath_type=dummy-p4 p4=true other_config:program="test.o"], [0], [ignore], [stderr])
+AT_DATA([test.json], [[
+{
+    "actions":	[],
+    "tables":	[],
+    "act_profs":	[],
+    "counters":	[],
+    "direct_counters":	[],
+    "meters":	[],
+    "direct_meters":	[],
+    "digests":	[]
+}
+]])
 
-OVS_WAIT_UNTIL([grep "p4rt|WARN|failed to initialize P4 datapath of br-test with binary from file 'test.o'" ovs-vswitchd.log])
-AT_CHECK([grep "p4rt|WARN|failed to initialize P4 datapath of br-test with binary from file 'test.o'" ovs-vswitchd.log],
+AT_CHECK([touch test.o])
+AT_CHECK([ovs-vsctl add-br br-test -- set bridge br-test datapath_type=dummy-p4 p4=true other_config:program="test.o" other_config:p4info="test.json"],
+         [0], [ignore], [stderr])
+
+OVS_WAIT_UNTIL([grep "p4rt|WARN|failed to initialize P4 datapath of br-test" ovs-vswitchd.log])
+AT_CHECK([grep "p4rt|WARN|failed to initialize P4 datapath of br-test" ovs-vswitchd.log],
          [0], [ignore])
 
 OVS_WAIT_UNTIL([grep "bridge|ERR|failed to create bridge br-test:" ovs-vswitchd.log])
@@ -25,12 +39,25 @@ AT_CHECK([grep "bridge|ERR|failed to create bridge br-test:" ovs-vswitchd.log],
          [0], [ignore])
 
 OVS_VSWITCHD_STOP(["/Failed to load code: not enough data for ELF header/d
-/failed to initialize P4 datapath of br-test with binary from file 'test.o' (Unknown error -1)/d
+/failed to initialize P4 datapath of br-test (Unknown error -1)/d
 /failed to create bridge br-test: Unknown error -1/d"])
 AT_CLEANUP
 
 AT_SETUP([p4 - setup P4 bridge, correct P4 program provided])
 OVS_VSWITCHD_START
+
+AT_DATA([test.json], [[
+{
+    "actions":	[],
+    "tables":	[],
+    "act_profs":	[],
+    "counters":	[],
+    "direct_counters":	[],
+    "meters":	[],
+    "direct_meters":	[],
+    "digests":	[]
+}
+]])
 
 AT_DATA([test.c], [dnl
 #include <stdint.h>
@@ -44,7 +71,8 @@ uint64_t entry(void *ctx, struct standard_metadata *std_meta){
 
 AT_CHECK([clang -w -target bpf -c test.c -o test.o])
 
-AT_CHECK([ovs-vsctl add-br br-test -- set bridge br-test datapath_type=dummy-p4 p4=true other_config:program="test.o"], [0])
+AT_CHECK([ovs-vsctl add-br br-test -- set bridge br-test datapath_type=dummy-p4 p4=true other_config:program="test.o" other_config:p4info="test.json"],
+        [0])
 
 OVS_VSWITCHD_STOP
 AT_CLEANUP
@@ -52,6 +80,19 @@ AT_CLEANUP
 AT_SETUP([p4 - setup P4 bridge with P4 program and add ports])
 OVS_VSWITCHD_START
 
+AT_DATA([test.json], [[
+{
+    "actions":	[],
+    "tables":	[],
+    "act_profs":	[],
+    "counters":	[],
+    "direct_counters":	[],
+    "meters":	[],
+    "direct_meters":	[],
+    "digests":	[]
+}
+]])
+
 AT_DATA([test.c], [dnl
 #include <stdint.h>
 #include <stdbool.h>
@@ -64,7 +105,7 @@ uint64_t entry(void *ctx, struct standard_metadata *std_meta){
 
 AT_CHECK([clang -w -target bpf -c test.c -o test.o])
 
-AT_CHECK([ovs-vsctl add-br br-test -- set bridge br-test datapath_type=dummy-p4 p4=true other_config:program="test.o"], [0])
+AT_CHECK([ovs-vsctl add-br br-test -- set bridge br-test datapath_type=dummy-p4 p4=true other_config:program="test.o" other_config:p4info="test.json"], [0])
 
 AT_CHECK([ovs-vsctl add-port br-test p1 -- set Interface p1 type=dummy])
 AT_CHECK([ovs-vsctl add-port br-test p2 -- set Interface p2 type=dummy])
@@ -75,6 +116,19 @@ AT_CLEANUP
 AT_SETUP([p4 - setup P4 bridge with P4 program and add ports, set port numbers])
 OVS_VSWITCHD_START
 
+AT_DATA([test.json], [[
+{
+    "actions":	[],
+    "tables":	[],
+    "act_profs":	[],
+    "counters":	[],
+    "direct_counters":	[],
+    "meters":	[],
+    "direct_meters":	[],
+    "digests":	[]
+}
+]])
+
 AT_DATA([test.c], [dnl
 #include <stdint.h>
 #include <stdbool.h>
@@ -87,7 +141,7 @@ uint64_t entry(void *ctx, struct standard_metadata *std_meta){
 
 AT_CHECK([clang -w -target bpf -c test.c -o test.o])
 
-AT_CHECK([ovs-vsctl add-br br-test -- set bridge br-test datapath_type=dummy-p4 p4=true other_config:program="test.o"], [0])
+AT_CHECK([ovs-vsctl add-br br-test -- set bridge br-test datapath_type=dummy-p4 p4=true other_config:program="test.o" other_config:p4info="test.json"], [0])
 
 AT_CHECK([ovs-vsctl add-port br-test p1 -- set Interface p1 type=dummy ofport_request=2])
 AT_CHECK([ovs-vsctl add-port br-test p2 -- set Interface p2 type=dummy ofport_request=3])
@@ -106,6 +160,19 @@ AT_CLEANUP
 AT_SETUP([p4 - setup P4 bridge, remove it, and add a new one])
 OVS_VSWITCHD_START
 
+AT_DATA([test.json], [[
+{
+    "actions":	[],
+    "tables":	[],
+    "act_profs":	[],
+    "counters":	[],
+    "direct_counters":	[],
+    "meters":	[],
+    "direct_meters":	[],
+    "digests":	[]
+}
+]])
+
 AT_DATA([test.c], [dnl
 #include <stdint.h>
 #include <stdbool.h>
@@ -118,11 +185,11 @@ uint64_t entry(void *ctx, struct standard_metadata *std_meta){
 
 AT_CHECK([clang -w -target bpf -c test.c -o test.o])
 
-AT_CHECK([ovs-vsctl add-br br-test -- set bridge br-test datapath_type=dummy-p4 p4=true other_config:program="test.o"], [0])
+AT_CHECK([ovs-vsctl add-br br-test -- set bridge br-test datapath_type=dummy-p4 p4=true other_config:program="test.o" other_config:p4info="test.json"], [0])
 
 AT_CHECK([ovs-vsctl del-br br-test], [0])
 
-AT_CHECK([ovs-vsctl add-br br-test -- set bridge br-test datapath_type=dummy-p4 p4=true other_config:program="test.o"], [0])
+AT_CHECK([ovs-vsctl add-br br-test -- set bridge br-test datapath_type=dummy-p4 p4=true other_config:program="test.o" other_config:p4info="test.json"], [0])
 
 OVS_VSWITCHD_STOP
 AT_CLEANUP
@@ -130,6 +197,19 @@ AT_CLEANUP
 AT_SETUP([p4 - setup two P4 bridges, install a P4 program for each of them])
 OVS_VSWITCHD_START
 
+AT_DATA([test.json], [[
+{
+    "actions":	[],
+    "tables":	[],
+    "act_profs":	[],
+    "counters":	[],
+    "direct_counters":	[],
+    "meters":	[],
+    "direct_meters":	[],
+    "digests":	[]
+}
+]])
+
 AT_DATA([test.c], [dnl
 #include <stdint.h>
 #include <stdbool.h>
@@ -142,8 +222,8 @@ uint64_t entry(void *ctx, struct standard_metadata *std_meta){
 
 AT_CHECK([clang -w -target bpf -c test.c -o test.o])
 
-AT_CHECK([ovs-vsctl add-br br1 -- set bridge br1 datapath_type=dummy-p4 p4=true other_config:program="test.o"], [0])
-AT_CHECK([ovs-vsctl add-br br2 -- set bridge br2 datapath_type=dummy-p4 p4=true other_config:program="test.o"], [0])
+AT_CHECK([ovs-vsctl add-br br1 -- set bridge br1 datapath_type=dummy-p4 p4=true other_config:program="test.o" other_config:p4info="test.json"], [0])
+AT_CHECK([ovs-vsctl add-br br2 -- set bridge br2 datapath_type=dummy-p4 p4=true other_config:program="test.o" other_config:p4info="test.json"], [0])
 
 OVS_VSWITCHD_STOP
 AT_CLEANUP
@@ -159,6 +239,19 @@ AT_CLEANUP
 AT_SETUP([p4 - setup P4 bridge without Device ID, check if Device ID has been auto-allocated])
 OVS_VSWITCHD_START
 
+AT_DATA([test.json], [[
+{
+    "actions":	[],
+    "tables":	[],
+    "act_profs":	[],
+    "counters":	[],
+    "direct_counters":	[],
+    "meters":	[],
+    "direct_meters":	[],
+    "digests":	[]
+}
+]])
+
 AT_DATA([test.c], [dnl
 #include <stdint.h>
 #include <stdbool.h>
@@ -171,8 +264,8 @@ uint64_t entry(void *ctx, struct standard_metadata *std_meta){
 
 AT_CHECK([clang -w -target bpf -c test.c -o test.o])
 
-AT_CHECK([ovs-vsctl add-br br1 -- set bridge br1 datapath_type=dummy-p4 p4=true other_config:program="test.o"], [0])
-AT_CHECK([ovs-vsctl add-br br2 -- set bridge br2 datapath_type=dummy-p4 p4=true other_config:program="test.o"], [0])
+AT_CHECK([ovs-vsctl add-br br1 -- set bridge br1 datapath_type=dummy-p4 p4=true other_config:program="test.o" other_config:p4info="test.json"], [0])
+AT_CHECK([ovs-vsctl add-br br2 -- set bridge br2 datapath_type=dummy-p4 p4=true other_config:program="test.o" other_config:p4info="test.json"], [0])
 
 OVS_WAIT_UNTIL([grep "Added P4 program as Device ID 0 for br1" ovs-vswitchd.log])
 AT_CHECK([grep "Added P4 program as Device ID 0 for br1" ovs-vswitchd.log],

@@ -385,6 +385,55 @@ p4rt_attach_ports_to_prog(struct p4rt *p4rt)
     }
 }
 
+static int
+p4rt_prog_install(struct p4rt *p4rt, pi_p4info_t *p4info, const char *data, size_t data_len)
+{
+    int error = 0;
+    struct program *prog = NULL;
+
+    if (!p4rt->prog) {
+        prog = p4rt->p4rt_class->program_alloc();
+        if (!prog) {
+            error = ENOMEM;
+            goto error;
+        }
+    } else {
+        prog = p4rt->prog;
+    }
+
+    *CONST_CAST(struct p4rt **, &prog->p4rt) = p4rt;
+    prog->p4info = p4info;
+    prog->data = data;
+    prog->data_len = data_len;
+
+    error = p4rt->p4rt_class->program_insert(prog);
+    if (error) {
+        goto error;
+    }
+
+    ovs_mutex_lock(&p4rt_mutex);
+    p4rt->prog = prog;
+    p4rt->p4info = p4info;
+    ovs_mutex_unlock(&p4rt_mutex);
+
+    p4rt_attach_ports_to_prog(p4rt);
+
+    VLOG_INFO("Added P4 program as Device ID %lu for %s", p4rt->dev_id, p4rt->name);
+
+    return 0;
+
+error:
+    VLOG_WARN_RL(&rl, "failed to initialize P4 datapath of %s (%s)",
+                 p4rt->name,
+                 error == EEXIST ? "Program with a given Device ID already exists"
+                                 : ovs_strerror(error));
+    if (prog) {
+        /* TODO: dealloc program here. */
+    }
+
+    return error;
+}
+
 /* ## ------------------------------------- ## */
 /* ## Functions exposed and used by bridge. ## */
 /* ## ------------------------------------- ## */
@@ -518,22 +567,21 @@ p4rt_create(const char *datapath_name, const char *datapath_type,
 }
 
 int
-p4rt_initialize_datapath(struct p4rt *p, const char *filename)
+p4rt_initialize_datapath(struct p4rt *p, const char *config_path, const char *p4info_path)
 {
     int error = 0;
-    struct program *prog = NULL;
 
     if (p->prog) {
         /* P4 datapath is already initialized with P4 program */
         return error;
     }
 
-    FILE *stream = !strcmp(filename, "-") ? stdin : fopen(filename, "r");
+    FILE *stream = !strcmp(config_path, "-") ? stdin : fopen(config_path, "r");
     if (stream == NULL) {
         error = ENOENT;
         VLOG_WARN_RL(&rl, "failed to initialize P4 datapath of %s "
                           "with binary from file '%s' (%s)",
-                     p->name, filename, ovs_strerror(error));
+                     p->name, config_path, ovs_strerror(error));
         return error;
     }
 
@@ -544,45 +592,21 @@ p4rt_initialize_datapath(struct p4rt *p, const char *filename)
     char *program = xzalloc(length);
     if (fread(program, sizeof(char), length, stream) != length) {
         error = ferror(stream) ? errno : EOF;
-        goto error;
+        fclose(stream);
+        free(program);
+        return error;
     }
     fclose(stream);
 
-    prog = p->p4rt_class->program_alloc();
-    if (!prog) {
-        error = ENOMEM;
-        goto error;
-    }
-
-    *CONST_CAST(struct p4rt **, &prog->p4rt) = p;
-    prog->data = program;
-    prog->data_len = length;
-
-    error = p->p4rt_class->program_insert(prog);
+    pi_p4info_t *p4info;
+    error = pi_add_config_from_file(p4info_path, PI_CONFIG_TYPE_NATIVE_JSON, &p4info);
     if (error) {
-        goto error;
+        VLOG_ERR("%s: failed to load P4Info from file. Make sure that you provided P4Info in the JSON format.", p->name);
+        return EINVAL;
     }
 
-    p->prog = prog;
+    return p4rt_prog_install(p, p4info, program, length);
 
-    p4rt_attach_ports_to_prog(p);
-
-    VLOG_INFO("Added P4 program as Device ID %lu for %s", p->dev_id, p->name);
-
-    return 0;
-
-error:
-    VLOG_WARN_RL(&rl, "failed to initialize P4 datapath of %s "
-                      "with binary from file '%s' (%s)",
-                 p->name, filename,
-                 error == EEXIST ? "Program with a given Device ID already exists"
-                 : ovs_strerror(error));
-    if (prog) {
-        /* TODO: dealloc program here. */
-    } else {
-        fclose(stream);
-    }
-    return error;
 }
 
 void

@@ -43,7 +43,7 @@ create_ubpf_vm(const ovs_be16 prog)
 }
 
 bool
-load_bpf_prog(struct ubpf_vm *vm, size_t code_len, char *code)
+load_bpf_prog(struct ubpf_vm *vm, size_t code_len, const char *code)
 {
     char *errmsg;
     int rv = ubpf_load_elf(vm, code, code_len, &errmsg);

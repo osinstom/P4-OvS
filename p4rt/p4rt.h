@@ -26,7 +26,7 @@ struct p4rt_port {
 
 void p4rt_init(void);
 void p4rt_deinit(void);
-int p4rt_initialize_datapath(struct p4rt *p, const char *filename);
+int p4rt_initialize_datapath(struct p4rt *p, const char *config_path, const char *p4info_path);
 
 int p4rt_enumerate_names(const char *type, struct sset *names);
 void p4rt_enumerate_types(struct sset *types);
