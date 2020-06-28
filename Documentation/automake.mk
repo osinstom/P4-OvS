@@ -52,6 +52,7 @@ DOC_SOURCE = \
 	Documentation/topics/p4/ovsp4-architecture.png \
 	Documentation/topics/p4/changelog.md \
 	Documentation/topics/p4/roadmap.md \
+	Documentation/topics/p4/testing.md \
 	Documentation/topics/p4/usage.md \
 	Documentation/topics/p4/demo.gif \
     Documentation/topics/p4/perf-results.png \

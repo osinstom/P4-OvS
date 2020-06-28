@@ -5,18 +5,23 @@ Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## Unreleased
 
-## 0.3.0 - 2020-06-20
+## 0.4.0
 
 ### Added
 
+- Implementation of ovs-p4ctl
+- Support for Read RPC to fetch P4 Table Entries
+- Support for Write RPC to delete P4 Table Entry
+
+## 0.3.0 - 2020-07-01
+
+### Added
+
+- Enable running multiple P4 bridges simultaneously; each P4 bridge has its own P4 program
 - PTF tests for uBPF datapath
-- Allow for user-defined "Device ID" of P4Runtime bridge
+- Enable user-defined "Device ID" of P4Runtime bridge
 - Automatically generate and assign "Device ID" if not provided by a user
 - Support for Write RPC for P4 Table Entry
-
-### Changed
-
-- Modified OVSDB model to store P4 Settings in a separate column
 
 ## 0.2.0 - 2020-06-06
 
