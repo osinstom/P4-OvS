@@ -570,3 +570,4 @@ clean-pki:
 endif
 
 include tests/oss-fuzz/automake.mk
+include tests/ptf/automake.mk
