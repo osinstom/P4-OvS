@@ -605,8 +605,14 @@ p4rt_initialize_datapath(struct p4rt *p, const char *config_path, const char *p4
         return EINVAL;
     }
 
-    return p4rt_prog_install(p, p4info, program, length);
 
+    int status = PIGrpcServerPipelineConfigSet(p->dev_id, program, length, p4info);
+    if (status != PI_STATUS_SUCCESS) {
+        /* FIXME: return better error code. */
+        return -1;
+    }
+
+    return 0;
 }
 
 void
