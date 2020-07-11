@@ -509,7 +509,7 @@ p4rt_wait(struct p4rt *p)
 
 int
 p4rt_create(const char *datapath_name, const char *datapath_type,
-            uint64_t requested_dev_id, struct p4rt **p4rtp)
+            uint64_t *requested_dev_id, struct p4rt **p4rtp)
     OVS_EXCLUDED(p4rt_mutex)
 {
     const struct p4rt_class *class;
@@ -526,12 +526,13 @@ p4rt_create(const char *datapath_name, const char *datapath_type,
         return EAFNOSUPPORT;
     }
 
-    dev_id = p4rt_assign_dev_id(requested_dev_id);
+    dev_id = p4rt_assign_dev_id(*requested_dev_id);
     if (dev_id == UINT64_MAX) {
         VLOG_ERR("failed to allocate Device ID for %s",
                  datapath_name);
         return EBUSY;
     }
+    *requested_dev_id = dev_id;
 
     p4rt = class->alloc();
     if (!p4rt) {

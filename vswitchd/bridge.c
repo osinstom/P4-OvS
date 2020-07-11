@@ -836,7 +836,7 @@ datapath_reconfigure(const struct ovsrec_open_vswitch *cfg)
 static void
 bridge_configure_p4rt_datapath_id(struct bridge *br)
 {
-    char *dpid_string = xasprintf("%016"PRIx64, 0UL);;
+    char *dpid_string = xasprintf("%016"PRIx64, 0UL);
     ovsrec_bridge_set_datapath_id(br->cfg, dpid_string);
     free(dpid_string);
 }
@@ -859,6 +859,13 @@ bridge_configure_p4_datapath(struct bridge *br)
     }
 
     return p4rt_initialize_datapath(br->p4rt, program_path, p4info_path);
+}
+
+static void
+bridge_update_p4rt_device_id(struct bridge *br, uint64_t dev_id)
+{
+    char *device_id = xasprintf("%lu", dev_id);
+    ovsrec_bridge_update_other_config_setkey(br->cfg, "device_id", device_id);
 }
 
 static void
@@ -949,7 +956,7 @@ bridge_reconfigure(const struct ovsrec_open_vswitch *ovs_cfg)
         if (br->p4 && !br->p4rt) {
             int error;
             uint64_t device_id = smap_get_ullong(&br->cfg->other_config, "device_id", UINT64_MAX);
-            error = p4rt_create(br->name, br->type, device_id, &br->p4rt);
+            error = p4rt_create(br->name, br->type, &device_id, &br->p4rt);
 
             if (!error) {
                 error = bridge_configure_p4_datapath(br);
@@ -960,6 +967,10 @@ bridge_reconfigure(const struct ovsrec_open_vswitch *ovs_cfg)
                          ovs_strerror(error));
                 shash_destroy(&br->wanted_ports);
                 bridge_destroy(br, true);
+            }
+
+            if (!error) {
+                bridge_update_p4rt_device_id(br, device_id);
             }
         }
     }
@@ -973,6 +984,7 @@ bridge_reconfigure(const struct ovsrec_open_vswitch *ovs_cfg)
 
     reconfigure_system_stats(ovs_cfg);
     datapath_reconfigure(ovs_cfg);
+
 
     /* Complete the configuration. */
     sflow_bridge_number = 0;
