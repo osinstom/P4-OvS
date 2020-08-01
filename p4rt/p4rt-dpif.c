@@ -481,6 +481,17 @@ p4rt_dpif_entry_del(struct p4rt *p OVS_UNUSED)
 
 }
 
+static int
+p4rt_dpif_fetch_entries(struct p4rt *p OVS_UNUSED,
+                      uint32_t table_id,
+                      struct ovs_list *entries)
+{
+    struct p4rt_dpif *p4rt = p4rt_dpif_cast(p);
+    struct dpif *dpif = p4rt->backer->dpif;
+
+    return dpif->dpif_class->dp_table_query(dpif, p->dev_id, table_id, entries);
+}
+
 const struct p4rt_class p4rt_dpif_class = {
         p4rt_dpif_init, /* init */
         p4rt_dpif_port_open_type,           /* port_open_type */
@@ -509,4 +520,5 @@ const struct p4rt_class p4rt_dpif_class = {
         p4rt_dpif_prog_dealloc,
         p4rt_dpif_entry_add,
         p4rt_dpif_entry_del,
+        p4rt_dpif_fetch_entries,
 };

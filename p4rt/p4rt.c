@@ -3,6 +3,7 @@
 #include <string.h>
 #include <PI/proto/pi_server.h>
 #include <PI/p4info.h>
+
 #include <PI/int/pi_int.h>
 #include <PI/pi.h>
 #include <PI/target/pi_imp.h>
@@ -869,6 +870,89 @@ pi_status_t _pi_table_entry_add(pi_session_handle_t session_handle OVS_UNUSED,
         return PI_STATUS_TARGET_ERROR;
     }
 
+    return PI_STATUS_SUCCESS;
+}
+
+static char *
+emit_pi_table_entries(struct p4rt *p, pi_p4_id_t table_id, struct ovs_list *entries, size_t *entries_size)
+{
+    /* We make use of ofpbuf as buffer. */
+    struct ofpbuf *buf = ofpbuf_new(32);
+
+    struct p4rtutil_table_entry *entry, *next;
+    LIST_FOR_EACH_SAFE (entry, next, list_node, entries) {
+
+        ofpbuf_put(buf, &entry->handle_id, sizeof(uint64_t));
+        ofpbuf_put(buf, &entry->priority, sizeof(uint32_t));
+        size_t key_size = pi_p4info_table_match_key_size(p->p4info, table_id);
+        ofpbuf_put(buf, entry->match_key, key_size);
+
+        uint32_t type = PI_ACTION_ENTRY_TYPE_DATA;
+        ofpbuf_put(buf, &type, sizeof(uint32_t));
+        ofpbuf_put(buf, &entry->action_id, sizeof(uint32_t));
+
+        uint32_t adata_size = pi_p4info_action_data_size(p->p4info, entry->action_id);
+        ofpbuf_put(buf, &adata_size, sizeof(uint32_t));
+        ofpbuf_put(buf, entry->action_data, adata_size);
+
+        /* FIXME: properties. */
+        uint32_t tmp = 0;
+        ofpbuf_put(buf, &tmp, sizeof(uint32_t));
+        ofpbuf_put(buf, &tmp, sizeof(uint32_t));
+
+        free(entry->match_key);
+        free(entry->action_data);
+        free(entry);
+    }
+
+    *entries_size = buf->size;
+
+    char *b = ofpbuf_steal_data(buf);
+    ofpbuf_delete(buf);
+
+    return b;
+}
+
+
+
+pi_status_t _pi_table_entries_fetch(pi_session_handle_t session_handle,
+                                    pi_dev_tgt_t dev_tgt, pi_p4_id_t table_id,
+                                    pi_table_fetch_res_t *res) {
+    int error;
+    struct p4rt *p4rt = p4rt_lookup_by_dev_id(dev_tgt.dev_id);
+    if (!p4rt) {
+        /* P4 Device does not exist. */
+        return PI_STATUS_DEV_OUT_OF_RANGE;
+    }
+
+    struct ovs_list *entries = xmalloc(sizeof *entries);
+    ovs_list_init(entries);
+
+    error = p4rt->p4rt_class->fetch_entries(p4rt, table_id, entries);
+    if (error) {
+        free(entries);
+        VLOG_WARN_RL(&rl, "failed to fetch P4 table entries from device %lu (%s)",
+                     dev_tgt.dev_id, ovs_strerror(error));
+        return PI_STATUS_TARGET_ERROR;
+    }
+
+    res->num_entries = ovs_list_size(entries);
+    res->p4info = p4rt->p4info;
+    res->mkey_nbytes = pi_p4info_table_match_key_size(p4rt->p4info, table_id);
+
+    size_t entries_size = 0;
+    char *buf = emit_pi_table_entries(p4rt, table_id, entries, &entries_size);
+
+    res->entries = buf;
+    res->entries_size = entries_size;
+
+    free(entries);
+    return PI_STATUS_SUCCESS;
+}
+
+pi_status_t _pi_table_entries_fetch_done(pi_session_handle_t session_handle,
+                                         pi_table_fetch_res_t *res) {
+    free(res->entries);
     return PI_STATUS_SUCCESS;
 }
 

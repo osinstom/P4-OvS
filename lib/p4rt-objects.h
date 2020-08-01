@@ -17,7 +17,12 @@
 #ifndef P4RT_OBJECTS_H
 #define P4RT_OBJECTS_H 1
 
+#include "openvswitch/list.h"
+
 struct p4rtutil_table_entry {
+    struct ovs_list list_node;
+    uint64_t handle_id;
+    uint32_t priority;
     uint32_t table_id;
     uint32_t action_id;
     const char *match_key;

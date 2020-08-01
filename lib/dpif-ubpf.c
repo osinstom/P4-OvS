@@ -24,6 +24,7 @@
 #include "openvswitch/util.h"
 #include "openvswitch/vlog.h"
 #include "ovs-atomic.h"
+#include "p4rt-objects.h"
 #include "smap.h"
 
 VLOG_DEFINE_THIS_MODULE(dpif_ubpf);
@@ -153,6 +154,20 @@ translate_action_id(struct dp_prog *prog, uint32_t *action_id)
     }
 
     return id == *action_id;
+}
+
+static uint32_t
+get_p4info_action_id(struct dp_prog *prog, uint32_t action_id)
+{
+    struct dpif_action_id *act;
+
+    HMAP_FOR_EACH (act, hmap_node, &prog->action_ids) {
+        if (act->dp_action_id == action_id) {
+            return act->action_id;
+        }
+    }
+
+    return 0;
 }
 
 static const char*
@@ -659,6 +674,73 @@ dp_table_entry_add(struct dpif *dpif OVS_UNUSED, uint32_t prog_id,
     return 0;
 }
 
+static int
+dp_table_query(struct dpif *dpif OVS_UNUSED, uint32_t prog_id,
+               uint32_t table_id,
+               struct ovs_list *entries)
+{
+    int error;
+    struct dp_prog *prog;
+
+    ovs_mutex_lock(&dp_prog_mutex);
+    prog = dp_progs[prog_id];
+    ovs_mutex_unlock(&dp_prog_mutex);
+
+    if (!prog) {
+        /* uBPF program is not installed. */
+        return EEXIST;
+    }
+
+    uint32_t p4info_table_id = table_id;
+    error = translate_table_id(prog, &table_id);
+    if (error) {
+        VLOG_WARN("Datapath cannot translate table ID.");
+        return EEXIST;
+    }
+
+    struct ubpf_vm *vm = prog->vm;
+
+    struct ubpf_map *map = vm->ext_maps[table_id];
+    if (!map) {
+        VLOG_WARN("Table %d does not exist.", table_id);
+        return EEXIST;
+    }
+
+    unsigned int data_size = ubpf_map_size(map) * (map->key_size + map->value_size);
+    char *data = xzalloc(data_size);
+    char *datap = data;
+    int nr_entries = ubpf_map_dump(map, data);
+
+    for (int i = 0; i < nr_entries; i++) {
+        struct p4rtutil_table_entry *entry = xmalloc(sizeof *entry);
+
+        char *key = xzalloc(map->key_size);
+        memcpy(key, datap, map->key_size);
+        datap = datap + map->key_size;
+
+        uint32_t *action_id = xzalloc(sizeof *action_id);
+        memcpy(action_id, datap, sizeof *action_id);
+        datap = datap + sizeof(*action_id);
+
+        char *action_data = xzalloc(map->value_size - sizeof *action_id);
+        memcpy(action_data, datap, map->value_size - sizeof *action_id);
+        datap = datap + (map->value_size - sizeof *action_id);
+
+        entry->handle_id = 0; /* don't define any */
+        entry->priority = 0; /* set 0 by default */
+        entry->match_key = key;
+        entry->table_id = p4info_table_id;
+        entry->action_id = get_p4info_action_id(prog, *action_id);
+        entry->action_data = action_data;
+
+        ovs_list_push_back(entries, &entry->list_node);
+    }
+
+    free(data);
+
+    return 0;
+}
+
 const struct dpif_class dpif_ubpf_class = {
         "ubpf",
         true,
@@ -735,4 +817,5 @@ const struct dpif_class dpif_ubpf_class = {
         dp_prog_set,
         dp_prog_unset,
         dp_table_entry_add,
+        dp_table_query,
 };

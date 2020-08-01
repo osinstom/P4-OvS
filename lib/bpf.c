@@ -134,6 +134,34 @@ static struct ubpf_func_proto ubpf_map_update_proto = {
     .ret = UNKNOWN,
 };
 
+int
+ubpf_map_dump(struct ubpf_map *map, char *data)
+{
+    if (OVS_UNLIKELY(!map)) {
+        return -1;
+    }
+
+    if (OVS_UNLIKELY(!map->ops.map_dump)) {
+        return -2;
+    }
+
+    return map->ops.map_dump(map, data);
+}
+
+unsigned int
+ubpf_map_size(struct ubpf_map *map)
+{
+    if (OVS_UNLIKELY(!map)) {
+        return -1;
+    }
+
+    if (OVS_UNLIKELY(!map->ops.map_size)) {
+        return -2;
+    }
+
+    return map->ops.map_size(map);
+}
+
 static int
 ubpf_map_add(struct ubpf_map *map, void *item)
 {

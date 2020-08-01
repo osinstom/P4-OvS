@@ -33,6 +33,7 @@ struct ubpf_vm *create_ubpf_vm(const ovs_be16 prog_id);
 bool load_bpf_prog(struct ubpf_vm *vm, size_t code_len, const char *code);
 void *ubpf_map_lookup(const struct ubpf_map *map, void *key);
 int ubpf_map_update(struct ubpf_map *map, const void *key, void *item);
+int ubpf_map_dump(struct ubpf_map *map, char *data);
 void *ubpf_adjust_head(void* ctx, int offset);
 void *ubpf_packet_data(void *ctx);
 

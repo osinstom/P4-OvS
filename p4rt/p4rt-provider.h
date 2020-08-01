@@ -177,6 +177,7 @@ struct p4rt_class {
 
     int (*entry_add)(struct p4rt *p, struct p4rtutil_table_entry *entry);
     void (*entry_del)(struct p4rt *p);
+    int (*fetch_entries)(struct p4rt *p, uint32_t table_id, struct ovs_list *entries);
 
 };
 

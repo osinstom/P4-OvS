@@ -27,6 +27,7 @@ import ovspy.client
 import queue
 import re
 import socket
+import struct
 import threading
 import time
 from functools import wraps
@@ -46,9 +47,8 @@ USAGE = "ovs-p4ctl: P4Runtime switch management utility\n" \
         "  show SWITCH                 show P4Runtime switch information\n" \
         "  set-pipe SWITCH PROGRAM P4INFO  set P4 pipeline for the swtich\n" \
         "  get-pipe SWITCH             get current P4 pipeline (P4Info) and print it\n" \
-        "  dump-tables SWITCH          print table stats\n" \
-        "  dump-table SWITCH TABLE     print table information\n" \
-        "  add-entry SWITCH TABLE MATCH_KEY ACTION ACTION_DATA  adds new table entry\n"
+        "  add-entry SWITCH TABLE MATCH_KEY ACTION ACTION_DATA  adds new table entry\n" \
+        "  dump-entries SWITCH [TBL]   print table entries\n"
 
 def usage():
     print(USAGE)
@@ -163,7 +163,10 @@ def encodeMac(mac_addr_string):
     return codecs.decode(str, 'hex_codec')
 
 def decodeMac(encoded_mac_addr):
-    return ':'.join(s.encode('hex') for s in encoded_mac_addr)
+    return ':'.join(codecs.encode(s, 'hex_codec').decode('utf-8') for s in struct.unpack(str(len(encoded_mac_addr)) + 'c', encoded_mac_addr))
+
+def decodeToHex(encoded_bytes):
+    return '0x' + ''.join(codecs.encode(s, 'hex_codec').decode('utf-8') for s in struct.unpack(str(len(encoded_bytes)) + 'c', encoded_bytes))
 
 ip_pattern = re.compile('^(\d{1,3}\.){3}(\d{1,3})$')
 def matchesIPv4(ip_addr_string):
@@ -257,6 +260,12 @@ class P4InfoHelper(object):
             return lambda id: self.get_name(primitive, id)
 
         raise AttributeError("%r object has no attribute %r" % (self.__class__, attr))
+
+    def get_match_fields(self, table_name):
+        for t in self.p4info.tables:
+            pre = t.preamble
+            if pre.name == table_name:
+                return t.match_fields
 
     def get_match_field(self, table_name, name=None, id=None):
         for t in self.p4info.tables:
@@ -514,6 +523,12 @@ class P4RuntimeClient:
         req.updates.extend([update])
         return self.stub.Write(req)
 
+    def read_one(self, entity):
+        req = p4runtime_pb2.ReadRequest()
+        req.device_id = self.device_id
+        req.entities.extend([entity])
+        return self.stub.Read(req)
+
 
 def resolve_device_id_by_bridge_name(bridge_name):
     ovs = ovspy.client.OvsClient(5000)
@@ -588,7 +603,7 @@ def p4ctl_add_entry(client, bridge, tbl_name, flow):
     """
     add-entry SWITCH TABLE MATCH_KEY ACTION ACTION_DATA
     Example:
-        ovs-p4ctl add-entry br0 filter_tbl headers.ipv4.dstAddr=10.10.10.10,action=push_mpls(10)
+        ovs-p4ctl add-entry br0 pipe.filter_tbl headers.ipv4.dstAddr=10.10.10.10,action=pipe.push_mpls(10)
     """
     if len(sys.argv) < 5:
         print("ovs-p4ctl: 'add-entry' command requires at least 3 arguments")
@@ -623,11 +638,53 @@ def p4ctl_add_entry(client, bridge, tbl_name, flow):
 def p4ctl_del_entry(client, bridge):
     raise NotImplementedError()
 
+def _format_entry(p4info_helper, tbl_name, table_entry):
+    output_buffer = "  "
+    output_buffer += "table={}".format(tbl_name)
+    if table_entry.priority is not None:
+        output_buffer += " priority={}".format(table_entry.priority)
+
+    first = True
+    for mf in table_entry.match:
+        match_field_name = p4info_helper.get_match_field_name(tbl_name, mf.field_id)
+        if first:
+            output_buffer += " {}={}".format(match_field_name,
+                                             decodeToHex(p4info_helper.get_match_field_value(mf)))
+            first = False
+        else:
+            output_buffer += ",{}={}".format(match_field_name,
+                                    decodeToHex(p4info_helper.get_match_field_value(mf)))
+
+    output_buffer += ' actions='
+    action_name = p4info_helper.get_name('actions', table_entry.action.action.action_id)
+    action_params = p4info_helper.get_action_params(action_name)
+    params_str = ""
+    for idx, param in enumerate(table_entry.action.action.params):
+        params_str += "{}={}".format(action_params[idx].name, decodeToHex(param.value))
+    output_buffer += '{}({})'.format(action_name, params_str)
+
+    return output_buffer
+
+@with_client
+def p4ctl_dump_entries(client, bridge, tbl_name=None):
+    p4info = client.get_p4info()
+    if not p4info:
+        raise Exception("cannot retrieve P4Info from device {}".format(bridge))
+    helper = P4InfoHelper(p4info)
+    entity = p4runtime_pb2.Entity()
+    table_entry = entity.table_entry
+    table_entry.table_id = helper.get_tables_id(tbl_name)
+    print("Table entries for bridge {}:".format(bridge))
+    for response in client.read_one(entity):
+        for entry in response.entities:
+            print(_format_entry(helper, tbl_name, entry.table_entry))
+
 all_commands = {
     "set-pipe": p4ctl_set_pipe,
     "get-pipe": p4ctl_get_pipe,
     "add-entry": p4ctl_add_entry,
     "del-entry": p4ctl_del_entry,
+    "dump-entries": p4ctl_dump_entries,
 }
 
 def main():
