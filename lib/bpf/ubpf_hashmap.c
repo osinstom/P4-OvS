@@ -36,6 +36,14 @@ ubpf_hashmap_create(const struct ubpf_map_def *map_def)
     return hmap;
 }
 
+void
+ubpf_hashmap_destroy(struct ubpf_map *map)
+{
+    struct hashmap *hmap = map->data;
+    free(hmap->buckets);
+    free(hmap);
+}
+
 static inline uint32_t ubpf_hashmap_hash(const void *key, uint32_t key_len)
 {
     return hashlittle(key, key_len, 0);

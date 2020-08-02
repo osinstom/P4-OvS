@@ -43,6 +43,7 @@ unsigned int ubpf_hashmap_dump(const struct ubpf_map *map, char *data);
 void *ubpf_hashmap_lookup(const struct ubpf_map *map, const void *key);
 int ubpf_hashmap_update(struct ubpf_map *map, const void *key, void *value);
 int ubpf_hashmap_delete(struct ubpf_map *map, const void *key);
+void ubpf_hashmap_destroy(struct ubpf_map *map);
 
 struct hashmap {
     struct ovs_list *buckets;
@@ -64,6 +65,7 @@ static const struct ubpf_map_ops ubpf_hashmap_ops = {
     .map_update = ubpf_hashmap_update,
     .map_delete = ubpf_hashmap_delete,
     .map_add = NULL,
+    .map_destroy = ubpf_hashmap_destroy,
 };
 
 #define BPF_KEY_IS_HASH 1

@@ -562,7 +562,16 @@ dp_prog_unset(struct dpif *dpif OVS_UNUSED, uint32_t prog_id)
     }
 
     ovs_mutex_lock(&dp_prog_mutex);
+    struct dpif_table_id *table_id, *next;
+    HMAP_FOR_EACH_SAFE (table_id, next, hmap_node, &prog->table_ids) {
+        free(table_id);
+    }
     hmap_destroy(&prog->table_ids);
+
+    struct dpif_action_id *action_id, *next_act;
+    HMAP_FOR_EACH_SAFE (action_id, next_act, hmap_node, &prog->action_ids) {
+        free(action_id);
+    }
     hmap_destroy(&prog->action_ids);
     dp_prog_destroy_(prog);
     dp_progs[prog_id] = NULL;
@@ -665,6 +674,8 @@ dp_table_entry_add(struct dpif *dpif OVS_UNUSED, uint32_t prog_id,
     void *key = (void *) build_key(map, match_key, key_size);
     void *value = (void *) construct_map_value(prog, map, action_id, action_data, data_size);
     error = ubpf_map_update(map, key, value);
+    free(key);
+    free(value);
     if (error) {
         VLOG_WARN("ubpf: the update_map() operation failed (status=%d).", error);
         /* FIXME: not sure what to return. */
@@ -734,6 +745,7 @@ dp_table_query(struct dpif *dpif OVS_UNUSED, uint32_t prog_id,
         entry->action_data = action_data;
 
         ovs_list_push_back(entries, &entry->list_node);
+        free(action_id);
     }
 
     free(data);

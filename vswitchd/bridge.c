@@ -866,6 +866,7 @@ bridge_update_p4rt_device_id(struct bridge *br, uint64_t dev_id)
 {
     char *device_id = xasprintf("%lu", dev_id);
     ovsrec_bridge_update_other_config_setkey(br->cfg, "device_id", device_id);
+    free(device_id);
 }
 
 static void

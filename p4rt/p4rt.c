@@ -387,7 +387,7 @@ p4rt_attach_ports_to_prog(struct p4rt *p4rt)
 }
 
 static int
-p4rt_prog_install(struct p4rt *p4rt, pi_p4info_t *p4info, const char *data, size_t data_len)
+p4rt_prog_install(struct p4rt *p4rt, const pi_p4info_t *p4info, const char *data, size_t data_len)
 {
     int error = 0;
     struct program *prog = NULL;
@@ -428,8 +428,8 @@ error:
                  p4rt->name,
                  error == EEXIST ? "Program with a given Device ID already exists"
                                  : ovs_strerror(error));
-    if (prog) {
-        /* TODO: dealloc program here. */
+    if (!p4rt->prog && prog) {
+        p4rt->p4rt_class->prog_dealloc(prog);
     }
 
     return error;
@@ -798,47 +798,13 @@ pi_status_t _pi_update_device_start(pi_dev_id_t dev_id,
         /* P4 Device does not exist. */
         return PI_STATUS_DEV_OUT_OF_RANGE;
     }
-    struct program *prog;
-    if (!p4rt->prog) {
-        prog = p4rt->p4rt_class->program_alloc();
-        if (!prog) {
-            error = ENOMEM;
-            goto error;
-        }
-    } else {
-        prog = p4rt->prog;
-    }
 
-    *CONST_CAST(struct p4rt **, &prog->p4rt) = p4rt;
-    prog->data = CONST_CAST(char *, device_data);
-    prog->data_len = device_data_size;
-    prog->p4info = p4info;
-
-
-    error = p4rt->p4rt_class->program_insert(prog);
+    error = p4rt_prog_install(p4rt, p4info, device_data, device_data_size);
     if (error) {
-        goto error;
+        return PI_STATUS_TARGET_ERROR;
     }
-
-    ovs_mutex_lock(&p4rt_mutex);
-    p4rt->prog = prog;
-    p4rt->p4info = p4info;
-    ovs_mutex_unlock(&p4rt_mutex);
-
-    p4rt_attach_ports_to_prog(p4rt);
-
-    VLOG_INFO("P4 datapath for device %lu initialized!", dev_id);
 
     return PI_STATUS_SUCCESS;
-
-error:
-    VLOG_WARN_RL(&rl, "failed to initialize P4 datapath of device %lu (%s)",
-                 dev_id, ovs_strerror(error));
-    if (!p4rt->prog && prog) {
-        p4rt->p4rt_class->prog_dealloc(prog);
-    }
-
-    return PI_STATUS_TARGET_ERROR;
 }
 
 pi_status_t _pi_table_entry_add(pi_session_handle_t session_handle OVS_UNUSED,
@@ -900,8 +866,8 @@ emit_pi_table_entries(struct p4rt *p, pi_p4_id_t table_id, struct ovs_list *entr
         ofpbuf_put(buf, &tmp, sizeof(uint32_t));
         ofpbuf_put(buf, &tmp, sizeof(uint32_t));
 
-        free(entry->match_key);
-        free(entry->action_data);
+        free((void *) entry->match_key);
+        free((void *) entry->action_data);
         free(entry);
     }
 
@@ -915,7 +881,7 @@ emit_pi_table_entries(struct p4rt *p, pi_p4_id_t table_id, struct ovs_list *entr
 
 
 
-pi_status_t _pi_table_entries_fetch(pi_session_handle_t session_handle,
+pi_status_t _pi_table_entries_fetch(pi_session_handle_t session_handle OVS_UNUSED,
                                     pi_dev_tgt_t dev_tgt, pi_p4_id_t table_id,
                                     pi_table_fetch_res_t *res) {
     int error;
@@ -950,7 +916,7 @@ pi_status_t _pi_table_entries_fetch(pi_session_handle_t session_handle,
     return PI_STATUS_SUCCESS;
 }
 
-pi_status_t _pi_table_entries_fetch_done(pi_session_handle_t session_handle,
+pi_status_t _pi_table_entries_fetch_done(pi_session_handle_t session_handle OVS_UNUSED,
                                          pi_table_fetch_res_t *res) {
     free(res->entries);
     return PI_STATUS_SUCCESS;

@@ -7536,6 +7536,7 @@ const struct dpif_class dpif_netdev_class = {
     NULL,
     NULL,
     NULL,
+    NULL,
 };
 
 static void

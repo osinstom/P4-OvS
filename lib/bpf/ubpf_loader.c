@@ -376,11 +376,13 @@ ubpf_load_elf(struct ubpf_vm *vm, const void *elf, size_t elf_size, char **errms
 
     int rv = ubpf_load(vm, text_copy, sections[text_shndx].size, errmsg);
     free(text_copy);
+    free(str_copy);
     return rv;
 
 error_map:
     free(map);
 error:
+    free(str_copy);
     free(text_copy);
     return -1;
 }

@@ -151,6 +151,11 @@ ubpf_destroy(struct ubpf_vm *vm)
     free(vm->insts);
     free(vm->ext_funcs);
     free(vm->ext_func_names);
+
+    for (int i = 0; i < vm->nb_maps; i++) {
+        vm->ext_maps[i]->ops.map_destroy(vm->ext_maps[i]);
+        free(vm->ext_maps[i]);
+    }
     free(vm->ext_maps);
     free(vm->ext_map_names);
     free(vm);
