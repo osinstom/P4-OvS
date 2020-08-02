@@ -685,6 +685,21 @@ dp_table_entry_add(struct dpif *dpif OVS_UNUSED, uint32_t prog_id,
     return 0;
 }
 
+/*
+ * As we retrieve data from uBPF VM in a network byte-order, we need to convert it to host byte-order.
+ * If map->key_size is greater than 'key_size' defined in P4 program 'offset' is used to copy only the
+ * 'key_size' number of bytes.
+ */
+static char *
+alloc_and_swap(char *data, size_t size, int offset)
+{
+    char *buf = xzalloc(size);
+    for (int i=0; i<size; i++) {
+        buf[i] = data[size-offset-1-i];
+    }
+    return buf;
+}
+
 static int
 dp_table_query(struct dpif *dpif OVS_UNUSED, uint32_t prog_id,
                uint32_t table_id,
@@ -725,16 +740,13 @@ dp_table_query(struct dpif *dpif OVS_UNUSED, uint32_t prog_id,
     for (int i = 0; i < nr_entries; i++) {
         struct p4rtutil_table_entry *entry = xmalloc(sizeof *entry);
 
-        char *key = xzalloc(map->key_size);
-        memcpy(key, datap, map->key_size);
+        char *key = alloc_and_swap(datap, map->key_size, map->key_size - pi_p4info_table_match_key_size(prog->p4info, p4info_table_id));
         datap = datap + map->key_size;
 
-        uint32_t *action_id = xzalloc(sizeof *action_id);
-        memcpy(action_id, datap, sizeof *action_id);
+        uint32_t *action_id = (uint32_t *) alloc_and_swap(datap, sizeof(uint32_t), 0);
         datap = datap + sizeof(*action_id);
 
-        char *action_data = xzalloc(map->value_size - sizeof *action_id);
-        memcpy(action_data, datap, map->value_size - sizeof *action_id);
+        char *action_data = alloc_and_swap(datap, map->value_size - sizeof *action_id, 0);
         datap = datap + (map->value_size - sizeof *action_id);
 
         entry->handle_id = 0; /* don't define any */
