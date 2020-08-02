@@ -164,7 +164,7 @@ function install_pi()
     sudo ldconfig
     popd
 
-    git clone https://github.com/osinstom/PI.git
+    git clone -b p4-ovs https://github.com/osinstom/PI.git
     pushd PI
     git submodule update --init --recursive
     ./autogen.sh
