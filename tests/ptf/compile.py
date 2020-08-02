@@ -69,8 +69,7 @@ def main():
             filename, extension = os.path.splitext(file)
 
             try:
-                # compile_p4_to_c(filename)
-                pass
+                compile_p4_to_c(filename)
             except Exception as e:
                 print e
                 print "p4c - stopping compilation"
