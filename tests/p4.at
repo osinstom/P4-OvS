@@ -26,7 +26,11 @@ AT_DATA([test.json], [[
 }
 ]])
 
-AT_CHECK([touch test.o])
+
+AT_DATA([test.o], [[
+test_data
+]])
+
 AT_CHECK([ovs-vsctl add-br br-test -- set bridge br-test datapath_type=dummy-p4 p4=true other_config:program="test.o" other_config:p4info="test.json"],
          [0], [ignore], [stderr])
 
@@ -39,7 +43,8 @@ AT_CHECK([grep "bridge|ERR|failed to create bridge br-test:" ovs-vswitchd.log],
          [0], [ignore])
 
 OVS_VSWITCHD_STOP(["/Failed to load code: not enough data for ELF header/d
-/failed to initialize P4 datapath of br-test (Unknown error -1)/d
+/failed to initialize P4 datapath of br-test/d
+/br-test: failed to initialize P4 datapath/d
 /failed to create bridge br-test: Unknown error -1/d"])
 AT_CLEANUP
 

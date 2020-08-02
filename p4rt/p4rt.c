@@ -610,7 +610,7 @@ p4rt_initialize_datapath(struct p4rt *p, const char *config_path, const char *p4
 
     int status = PIGrpcServerPipelineConfigSet(p->dev_id, program, length, p4info);
     if (status != PI_STATUS_SUCCESS) {
-        /* FIXME: return better error code. */
+        VLOG_ERR("%s: failed to initialize P4 datapath (PIGrpcServer returned error).", p->name);
         return -1;
     }
 
@@ -801,7 +801,7 @@ pi_status_t _pi_update_device_start(pi_dev_id_t dev_id,
 
     error = p4rt_prog_install(p4rt, p4info, device_data, device_data_size);
     if (error) {
-        return PI_STATUS_TARGET_ERROR;
+        return PI_STATUS_INVALID_CONFIG_TYPE;
     }
 
     return PI_STATUS_SUCCESS;
