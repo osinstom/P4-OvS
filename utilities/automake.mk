@@ -46,7 +46,7 @@ EXTRA_DIST += \
 	utilities/ovs-kmod-ctl.in \
 	utilities/ovs-l3ping.in \
 	utilities/ovs-lib.in \
-	utilities/ovs-p4ctl.py \
+	utilities/ovs-p4ctl.in \
 	utilities/ovs-parse-backtrace.in \
 	utilities/ovs-pcap.in \
 	utilities/ovs-pipegen.py \

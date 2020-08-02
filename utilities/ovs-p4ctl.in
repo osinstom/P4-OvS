@@ -1,4 +1,4 @@
-#! /usr/bin/python3
+#! @PYTHON3@
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -25,6 +25,7 @@ import json
 import math
 import ovspy.client
 import queue
+import random
 import re
 import socket
 import struct
@@ -40,14 +41,15 @@ from p4.v1 import p4runtime_pb2_grpc
 from p4.config.v1 import p4info_pb2
 
 # context = Context()
+ovs = None
 
 USAGE = "ovs-p4ctl: P4Runtime switch management utility\n" \
         "usage: ovs-p4ctl [OPTIONS] COMMAND [ARG...]\n" \
         "\nFor P4Runtime switches:\n" \
         "  show SWITCH                 show P4Runtime switch information\n" \
         "  set-pipe SWITCH PROGRAM P4INFO  set P4 pipeline for the swtich\n" \
-        "  get-pipe SWITCH             get current P4 pipeline (P4Info) and print it\n" \
-        "  add-entry SWITCH TABLE MATCH_KEY ACTION ACTION_DATA  adds new table entry\n" \
+        "  get-pipe SWITCH             print raw P4Info representation of P4 program\n" \
+        "  add-entry SWITCH TABLE FLOW  adds new table entry\n" \
         "  dump-entries SWITCH [TBL]   print table entries\n"
 
 def usage():
@@ -531,9 +533,10 @@ class P4RuntimeClient:
 
 
 def resolve_device_id_by_bridge_name(bridge_name):
+    global ovs
     ovs = ovspy.client.OvsClient(5000)
 
-    if not ovs.find_bridge(bridge_name):
+    if ovs.find_bridge(bridge_name) is None:
         raise Exception("bridge '{}' doesn't exist".format(bridge_name))
 
     for br in ovs.get_bridge_raw():
@@ -559,12 +562,96 @@ def with_client(f):
                 client.tear_down()
     return handle
 
+interface_query = {
+    "method":"transact",
+    "params":[
+        "Open_vSwitch",
+        {
+            "op" : "select",
+            "table" : "Interface",
+            "where" : [],
+        }
+    ],
+    "id": random.randint(0, 10000)
+}
+
+def ovs_get_interfaces():
+    result = ovs._send(interface_query)
+    return result["result"][0]["rows"]
+
+def ovs_get_interface(id):
+    for intf in ovs_get_interfaces():
+        if intf['_uuid'][1] == id:
+            return intf
+
+def ovs_get_interfaces_by_bridge_name(bridge):
+    interfaces = []
+    br = ovs.find_bridge(bridge)
+
+    if not br:
+        return interfaces
+
+    for p in br.get_ports():
+        port = p.get_raw()
+        interfaces_ids = []
+        if port["interfaces"][0] == 'set':
+            for i in port["interfaces"][1]:
+                interfaces_ids.append(i[1])
+        elif port["interfaces"][0] == 'uuid':
+            interfaces_ids.append(port["interfaces"][1])
+
+        for id in interfaces_ids:
+            intf = ovs_get_interface(id)
+            interfaces.append(intf)
+
+    return interfaces
+
+@with_client
+def p4ctl_show(client, bridge):
+    p4info = client.get_p4info()
+    if not p4info:
+        raise Exception("cannot retrieve P4Info from device {}".format(bridge))
+
+    helper = P4InfoHelper(p4info)
+
+    bridge_line = "P4Runtime switch {} information:\n".format(bridge)
+    device_id_line = "device_id: {}\n".format(client.device_id)
+    n_tables_line = "n_tables: {}\n".format(len(p4info.tables))
+    tables_line = "tables:"
+    for tbl in p4info.tables:
+        match = [mf.name for mf in tbl.match_fields]
+        actions = [helper.get_name('actions', a.id) for a in tbl.action_refs]
+        tables_line += " {}(match=[{}], actions=[{}])".format(tbl.preamble.name, ', '.join(match), ', '.join(actions))
+    tables_line += "\n"
+
+    ports = []
+    for intf in ovs_get_interfaces_by_bridge_name(bridge):
+        mac = intf['mac_in_use']
+        link_state = intf['link_state'].upper()
+        speed = int(int(intf['link_speed']) / 1000)
+        rx_packets = intf['statistics'][1][1][1]
+        rx_bytes = intf['statistics'][1][8][1]
+        tx_packets = intf['statistics'][1][12][1]
+        tx_bytes = intf['statistics'][1][9][1]
+        port_str = "  {}({}):\n\tstate: {}\n\taddr:{}\n\tspeed: {}\n\tstats: {}".format(
+            intf['ofport'] if intf['name'] != bridge else "LOCAL",
+            intf['name'],
+            mac,
+            link_state,
+            "{} Mbps".format(str(speed)),
+            "rx_packets={}, rx_bytes={}, tx_packets={}, tx_bytes={}".format(
+                rx_packets, rx_bytes, tx_packets, tx_bytes
+            ))
+        ports.append(port_str)
+
+    print(''.join([bridge_line,
+                   device_id_line,
+                   n_tables_line,
+                   tables_line,
+                   '\n'.join(ports)]))
+
 @with_client
 def p4ctl_set_pipe(client, bridge):
-    if len(sys.argv) < 5:
-        print("ovs-p4ctl: 'set-pipe' command requires at least 3 arguments")
-        return
-
     device_config = sys.argv[3]
     p4info = sys.argv[4]
 
@@ -605,9 +692,6 @@ def p4ctl_add_entry(client, bridge, tbl_name, flow):
     Example:
         ovs-p4ctl add-entry br0 pipe.filter_tbl headers.ipv4.dstAddr=10.10.10.10,action=pipe.push_mpls(10)
     """
-    if len(sys.argv) < 5:
-        print("ovs-p4ctl: 'add-entry' command requires at least 3 arguments")
-        return
 
     match_keys, action, action_data = parse_flow(flow)
 
@@ -680,12 +764,17 @@ def p4ctl_dump_entries(client, bridge, tbl_name=None):
             print(_format_entry(helper, tbl_name, entry.table_entry))
 
 all_commands = {
-    "set-pipe": p4ctl_set_pipe,
-    "get-pipe": p4ctl_get_pipe,
-    "add-entry": p4ctl_add_entry,
-    "del-entry": p4ctl_del_entry,
-    "dump-entries": p4ctl_dump_entries,
+    "show": (p4ctl_show, 1),
+    "set-pipe": (p4ctl_set_pipe, 3),
+    "get-pipe": (p4ctl_get_pipe, 1),
+    "add-entry": (p4ctl_add_entry, 3),
+    "del-entry": (p4ctl_del_entry, 2),
+    "dump-entries": (p4ctl_dump_entries, 2),
 }
+
+def validate_args(argv, command, expected_nr):
+    if len(argv)-2 < expected_nr:
+        raise Exception("ovs-p4ctl: '{}' command requires at least {} arguments".format(command, expected_nr))
 
 def main():
     if len(sys.argv) < 2:
@@ -700,7 +789,9 @@ def main():
 
     try:
         # use dispatch pattern to invoke method with same name
-        all_commands[args.command](*sys.argv[2:])
+        # but first validate number of arguments
+        validate_args(sys.argv, command=args.command, expected_nr=all_commands[args.command][1])
+        all_commands[args.command][0](*sys.argv[2:])
     except Exception as e:
         print("Error:", str(e))
         sys.exit(1)
