@@ -31,8 +31,11 @@ The current version of the project allows to:
 * create a single P4 bridge and provide a P4 program as configuration parameter or using P4Runtime and SetForwardingPipelineConfig RPC.
 * add ports to the bridge
 * receive traffic from these ports and handle it in the P4 (uBPF) datapath.
+* control P4 tables via `ovs-p4ctl` tool
 
 To play with P4-OVS on your own follow [Getting started](./Documentation/topics/p4/getting-started.md) guide.
+
+Please, refer to [the usage guide](./Documentation/topics/p4/usage.md) to learn how to use `ovs-p4ctl` tool.
 
 # Contributing
 
@@ -40,7 +43,7 @@ The P4-OvS is not ready to welcome code contributions at this stage. However, I'
 to the design process!
 
 * Check out the [Design proposal](Documentation/topics/p4/design.md). This project follows a documentation-driven approach. Your feedback is more than welcome!
-* [Join the XMPP chat room](Documentation/topics/p4/getting-started.md#join-the-discussion) to discuss the current design, propose a new feature or discuss the future of the project.
+* [Join the discussion](Documentation/topics/p4/getting-started.md#join-the-discussion) to discuss the current design, propose a new feature or discuss the future of the project.
 * If you see some inconsistency in the documentation or you want to propose a new feature please [Open an issue](https://github.com/osinstom/P4-OvS/issues/new).
 
 You can also reach me out on [Twitter](https://twitter.com/tomek_osinski) or via [email](mailto:osinstom@gmail.com) to discuss the project!

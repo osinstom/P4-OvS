@@ -9,7 +9,7 @@ Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
-- Implementation of ovs-p4ctl
+- Implementation of ovs-p4ctl utility tool (supported commands: show, set-pipe, get-pipe, add-entry, del-entry, dump-entries)
 - Support for Read RPC to fetch P4 Table Entries
 - Support for Write RPC to delete P4 Table Entry
 

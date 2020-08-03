@@ -51,6 +51,7 @@ DOC_SOURCE = \
 	Documentation/topics/p4/install.md \
 	Documentation/topics/p4/ovsp4-architecture.png \
 	Documentation/topics/p4/changelog.md \
+	Documentation/topics/p4/Interop_with_OpenFlow.png \
 	Documentation/topics/p4/roadmap.md \
 	Documentation/topics/p4/testing.md \
 	Documentation/topics/p4/usage.md \

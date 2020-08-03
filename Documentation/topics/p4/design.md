@@ -63,6 +63,23 @@ flow packet batches. In case of uBPF packet batches should be constructed per ac
 <img src="ubpf-processing.png" width="600" alt="uBPF processing">
 </p>
 
+### Interoperability with OpenFlow bridges
+
+P4-OvS has been designed to keep well-known features of Open vSwitch. Therefore, I also have worked on providing the 
+interoperability model with OpenFlow bridges.
+
+<p align="center">
+<img src="interop_with_OpenFlow.png" width="600" alt="Interoperability with OpenFlow">
+</p>
+
+The above figure presents a scenario, in which we have a heterogeneous deployment i.e. both P4Runtime and OpenFlow bridges are 
+configured for the instance of Open vSwitch. On the right-hand side there are two OpenFlow bridges connected via a patch port.
+Patch port is a well-known concept from OVS and it provides the lightweight way connect two OpenFlow bridges with no need for
+using vEth pairs. It is also more efficient then vEth. For P4Runtime bridges I'll use the same concept. The P4-OvS will implement
+support for patch ports, so that there will be no need to use vEth to connect two P4Runtime bridges. The figure presents also the way
+how OpenFlow and P4Runtime bridge can be connected to each other. In such case, we need to use vEth pair to connect them, because
+`br-p41` and `br-of1` use different datapath types (e.g. 'ubpf' and 'netdev', respectively). 
+
 ## Implementation architecture
 
 OVS comes with layered, extensible architecture. When it comes to the implementation of OpenFlow abstraction 
