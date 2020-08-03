@@ -56,39 +56,15 @@ pi_status_t _pi_table_default_action_get_handle(
     return PI_STATUS_SUCCESS;
 }
 
-pi_status_t _pi_table_entry_delete(pi_session_handle_t session_handle,
-                                   pi_dev_id_t dev_id, pi_p4_id_t table_id,
-                                   pi_entry_handle_t entry_handle) {
-    (void)session_handle;
-    (void)dev_id;
-    (void)table_id;
-    (void)entry_handle;
-
-    return PI_STATUS_SUCCESS;
-}
-
-pi_status_t _pi_table_entry_delete_wkey(pi_session_handle_t session_handle,
-                                        pi_dev_tgt_t dev_tgt,
-                                        pi_p4_id_t table_id,
-                                        const pi_match_key_t *match_key) {
-    (void)session_handle;
-    (void)dev_tgt;
-    (void)table_id;
-    (void)match_key;
-
-    return PI_STATUS_SUCCESS;
-}
-
 pi_status_t _pi_table_entry_modify(pi_session_handle_t session_handle,
                                    pi_dev_id_t dev_id, pi_p4_id_t table_id,
                                    pi_entry_handle_t entry_handle,
                                    const pi_table_entry_t *table_entry) {
     (void)session_handle;
     (void)dev_id;
+    (void)table_entry;
     (void)table_id;
     (void)entry_handle;
-    (void)table_entry;
-
     return PI_STATUS_SUCCESS;
 }
 

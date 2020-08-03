@@ -196,7 +196,7 @@ static struct ubpf_func_proto ubpf_map_add_proto = {
     .ret = UNKNOWN,
 };
 
-static int
+int
 ubpf_map_delete(struct ubpf_map *map, const void *key)
 {
     if (OVS_UNLIKELY(!map)) {

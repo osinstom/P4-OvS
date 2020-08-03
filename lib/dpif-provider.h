@@ -636,6 +636,11 @@ struct dpif_class {
                           uint32_t table_id,
                           struct ovs_list *entries);
 
+    int (*dp_table_entry_del)(struct dpif *, uint32_t prog_id,
+                               uint32_t table_id,
+                               const char *match_key,
+                               size_t key_size);
+    
 };
 
 extern const struct dpif_class dpif_netlink_class;

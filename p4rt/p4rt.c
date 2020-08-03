@@ -879,12 +879,11 @@ emit_pi_table_entries(struct p4rt *p, pi_p4_id_t table_id, struct ovs_list *entr
     return b;
 }
 
-
-
 pi_status_t _pi_table_entries_fetch(pi_session_handle_t session_handle OVS_UNUSED,
                                     pi_dev_tgt_t dev_tgt, pi_p4_id_t table_id,
                                     pi_table_fetch_res_t *res) {
     int error;
+
     struct p4rt *p4rt = p4rt_lookup_by_dev_id(dev_tgt.dev_id);
     if (!p4rt) {
         /* P4 Device does not exist. */
@@ -917,8 +916,38 @@ pi_status_t _pi_table_entries_fetch(pi_session_handle_t session_handle OVS_UNUSE
 }
 
 pi_status_t _pi_table_entries_fetch_done(pi_session_handle_t session_handle OVS_UNUSED,
-                                         pi_table_fetch_res_t *res) {
+                                         pi_table_fetch_res_t *res)
+{
     free(res->entries);
+    return PI_STATUS_SUCCESS;
+}
+
+pi_status_t _pi_table_entry_delete(pi_session_handle_t session_handle OVS_UNUSED,
+                                   pi_dev_id_t dev_id OVS_UNUSED, pi_p4_id_t table_id OVS_UNUSED,
+                                   pi_entry_handle_t entry_handle OVS_UNUSED)
+{
+    /* We do not support handle-based delete operation */
+    return PI_STATUS_NOT_IMPLEMENTED_BY_TARGET;
+}
+
+pi_status_t _pi_table_entry_delete_wkey(pi_session_handle_t session_handle OVS_UNUSED,
+                                        pi_dev_tgt_t dev_tgt,
+                                        pi_p4_id_t table_id,
+                                        const pi_match_key_t *match_key) {
+    int error;
+
+    struct p4rt *p4rt = p4rt_lookup_by_dev_id(dev_tgt.dev_id);
+    if (!p4rt) {
+        /* P4 Device does not exist. */
+        return PI_STATUS_DEV_OUT_OF_RANGE;
+    }
+
+    error = p4rt->p4rt_class->entry_del(p4rt, table_id, match_key->data, match_key->data_size);
+    if (error) {
+        VLOG_ERR("%s: failed to delete table entry from table with ID %u", p4rt->name, table_id);
+        return PI_STATUS_TARGET_ERROR;
+    }
+
     return PI_STATUS_SUCCESS;
 }
 

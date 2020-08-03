@@ -765,6 +765,50 @@ dp_table_query(struct dpif *dpif OVS_UNUSED, uint32_t prog_id,
     return 0;
 }
 
+static int
+dp_table_entry_del(struct dpif *dpif OVS_UNUSED, uint32_t prog_id,
+                   uint32_t table_id,
+                   const char *match_key,
+                   size_t key_size)
+{
+    int error = 0;
+    struct dp_prog *prog;
+
+    ovs_mutex_lock(&dp_prog_mutex);
+    prog = dp_progs[prog_id];
+    ovs_mutex_unlock(&dp_prog_mutex);
+
+    if (!prog) {
+        /* uBPF program is not installed. */
+        return EEXIST;
+    }
+
+    error = translate_table_id(prog, &table_id);
+    if (error) {
+        VLOG_ERR("Datapath cannot translate table ID.");
+        return EEXIST;
+    }
+
+    struct ubpf_vm *vm = prog->vm;
+
+    struct ubpf_map *map = vm->ext_maps[table_id];
+    if (!map) {
+        VLOG_ERR("Table %d does not exist.", table_id);
+        return EEXIST;
+    }
+
+    void *key = (void *) build_key(map, match_key, key_size);
+    error = ubpf_map_delete(map, key);
+    free(key);
+    if (error) {
+        VLOG_ERR("ubpf: the delete_map() operation failed (status=%d).", error);
+        /* FIXME: not sure what to return. */
+        return -1;
+    }
+
+    return 0;
+}
+
 const struct dpif_class dpif_ubpf_class = {
         "ubpf",
         true,
@@ -842,4 +886,5 @@ const struct dpif_class dpif_ubpf_class = {
         dp_prog_unset,
         dp_table_entry_add,
         dp_table_query,
+        dp_table_entry_del,
 };

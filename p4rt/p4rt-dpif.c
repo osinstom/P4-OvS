@@ -475,10 +475,13 @@ p4rt_dpif_entry_add(struct p4rt *p, struct p4rtutil_table_entry *entry)
                                                 entry->data_size);
 }
 
-static void
-p4rt_dpif_entry_del(struct p4rt *p OVS_UNUSED)
+static int
+p4rt_dpif_entry_del(struct p4rt *p, uint32_t table_id, const char *match_key, size_t key_size)
 {
+    struct p4rt_dpif *p4rt = p4rt_dpif_cast(p);
+    struct dpif *dpif = p4rt->backer->dpif;
 
+    return dpif->dpif_class->dp_table_entry_del(dpif, p->dev_id, table_id, match_key, key_size);
 }
 
 static int
