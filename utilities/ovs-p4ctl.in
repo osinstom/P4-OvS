@@ -722,7 +722,8 @@ def p4ctl_add_entry(client, bridge, tbl_name, flow):
 def p4ctl_del_entry(client, bridge):
     raise NotImplementedError()
 
-def _format_entry(p4info_helper, tbl_name, table_entry):
+def _format_entry(p4info_helper, table_entry):
+    tbl_name = p4info_helper.get_name('tables', table_entry.table_id)
     output_buffer = "  "
     output_buffer += "table={}".format(tbl_name)
     if table_entry.priority is not None:
@@ -757,11 +758,16 @@ def p4ctl_dump_entries(client, bridge, tbl_name=None):
     helper = P4InfoHelper(p4info)
     entity = p4runtime_pb2.Entity()
     table_entry = entity.table_entry
-    table_entry.table_id = helper.get_tables_id(tbl_name)
+
+    if not tbl_name:
+        table_entry.table_id = 0
+    else:
+        table_entry.table_id = helper.get_tables_id(tbl_name)
+
     print("Table entries for bridge {}:".format(bridge))
     for response in client.read_one(entity):
         for entry in response.entities:
-            print(_format_entry(helper, tbl_name, entry.table_entry))
+            print(_format_entry(helper, entry.table_entry))
 
 all_commands = {
     "show": (p4ctl_show, 1),
@@ -769,7 +775,7 @@ all_commands = {
     "get-pipe": (p4ctl_get_pipe, 1),
     "add-entry": (p4ctl_add_entry, 3),
     "del-entry": (p4ctl_del_entry, 2),
-    "dump-entries": (p4ctl_dump_entries, 2),
+    "dump-entries": (p4ctl_dump_entries, 1),
 }
 
 def validate_args(argv, command, expected_nr):
