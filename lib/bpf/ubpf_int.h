@@ -63,6 +63,7 @@ enum ubpf_map_type {
     UBPF_MAP_TYPE_BLOOMFILTER = 2,
     UBPF_MAP_TYPE_COUNTMIN = 3,
     UBPF_MAP_TYPE_HASHMAP = 4,
+    UBPF_MAP_TYPE_LPM_TRIE = 5,
 };
 
 struct ubpf_map_def {

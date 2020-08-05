@@ -47,6 +47,8 @@ lib_libopenvswitch_la_SOURCES = \
 	lib/bpf/ubpf_hashmap.c \
 	lib/bpf/ubpf_hashmap.h \
 	lib/bpf/ubpf_loader.c \
+	lib/bpf/ubpf_lpm_trie.c \
+	lib/bpf/ubpf_lpm_trie.h \
 	lib/bpf.c \
 	lib/bpf.h \
 	lib/bundle.c \

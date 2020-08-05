@@ -674,15 +674,15 @@ def parse_flow(flow):
     for mk_field in mk_fields:
         m = mk_field.split("=")
         if "/" in m[1]:
-            # We have LPM key
-            raise NotImplementedError("LPM not supported")
+            lpm_mk = m[1].split("/")
+            match_keys[m[0]] = (lpm_mk[0], int(lpm_mk[1]))
         else:
             match_keys[m[0]] = m[1]
     act_fields = act.split('(')
     action_name = act_fields[0]
     params = act_fields[1].split(')')[0]
     act_data = params.split(',')
-    act_data = [ int(a) for a in act_data]
+    act_data = [ a for a in act_data]
     return match_keys, action_name, act_data
 
 @with_client
@@ -707,7 +707,7 @@ def p4ctl_add_entry(client, bridge, tbl_name, flow):
         match_fields=match_keys,
         action_name=action,
         action_params={
-            a.name: action_data[idx] for idx, a in enumerate(helper.get_action_params(action))
+            a.name: int(action_data[idx]) for idx, a in enumerate(helper.get_action_params(action))
         }
     )
 
@@ -732,13 +732,17 @@ def _format_entry(p4info_helper, table_entry):
     first = True
     for mf in table_entry.match:
         match_field_name = p4info_helper.get_match_field_name(tbl_name, mf.field_id)
+        mf_val = p4info_helper.get_match_field_value(mf)
+        if type(mf_val) == tuple:
+            mf_val = "{}/{}".format(decodeToHex(mf_val[0]), mf_val[1])
+        else:
+            mf_val = decodeHex(mf_val)
         if first:
             output_buffer += " {}={}".format(match_field_name,
-                                             decodeToHex(p4info_helper.get_match_field_value(mf)))
+                                             mf_val)
             first = False
         else:
-            output_buffer += ",{}={}".format(match_field_name,
-                                    decodeToHex(p4info_helper.get_match_field_value(mf)))
+            output_buffer += ",{}={}".format(match_field_name, mf_val)
 
     output_buffer += ' actions='
     action_name = p4info_helper.get_name('actions', table_entry.action.action.action_id)

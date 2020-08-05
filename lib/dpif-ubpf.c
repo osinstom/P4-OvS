@@ -578,19 +578,69 @@ dp_prog_unset(struct dpif *dpif OVS_UNUSED, uint32_t prog_id)
     ovs_mutex_unlock(&dp_prog_mutex);
 }
 
-static char *
-build_key(struct ubpf_map *map, const char *match_key, size_t key_size)
+static bool
+isLPM(const pi_p4info_t *p4info, uint32_t table_id)
 {
-    char *key = xzalloc(map->key_size);
-    memset(key, 0, map->key_size);
-    /* Fill the key with data from `match_key`.
-     * According to PI documentation match_key is provided in a network-byte order.
-     * so that we need to reverse the byte array. */
-    int offset = map->key_size - key_size;
-    int k_idx = map->key_size - 1 - offset;
-    for (int i = 0; i < key_size; i++) {
-        key[k_idx] = match_key[i];
-        k_idx--;
+    size_t num_match_fields = pi_p4info_table_num_match_fields(p4info, table_id);
+    for (size_t i = 0; i < num_match_fields; i++) {
+        const pi_p4info_match_field_info_t *finfo =
+                pi_p4info_table_match_field_info(p4info, table_id, i);
+        if (finfo->match_type == PI_P4INFO_MATCH_TYPE_LPM) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/*
+ * TODO: prepare description
+ */
+static char *
+build_key(const pi_p4info_t *p4info, uint32_t table_id, struct ubpf_map *map, const char *match_key)
+{
+    bool lpm_type = isLPM(p4info, table_id);
+    size_t num_match_fields = pi_p4info_table_num_match_fields(p4info, table_id);
+
+    size_t buf_size = !lpm_type ? map->key_size : map->key_size + (4 * num_match_fields);
+    char *key = xzalloc(buf_size);
+    char *key_ptr = key;
+    memset(key, 0, buf_size);
+    for (int i = 0; i < num_match_fields; i++) {
+        const pi_p4info_match_field_info_t *finfo =
+                pi_p4info_table_match_field_info(p4info, table_id, i);
+        size_t key_size = (finfo->bitwidth + 7) / 8;
+        size_t bpf_key_size = ROUND_UP(key_size, 4);
+        if (lpm_type) {
+            uint32_t prefix_len = 32;
+            if (finfo->match_type == PI_P4INFO_MATCH_TYPE_LPM) {
+                /* TODO: verify if endianness is correct. */
+                memcpy(&prefix_len, match_key+key_size, 4);
+            }
+            memcpy(key_ptr, &prefix_len, 4);
+            key_ptr += 4;
+
+            int offset = bpf_key_size - key_size;
+            int k_idx = bpf_key_size - 1 - offset;
+            for (int k = 0; k < key_size; k++) {
+                key_ptr[k_idx] = match_key[k];
+                k_idx--;
+            }
+            key_ptr += bpf_key_size;
+            match_key += key_size + 4;
+        } else {
+            /* If not LPM type, construct a simple key. */
+            /* Fill the key with data from `match_key`.
+             * According to PI documentation match_key is provided in a network-byte order.
+             * so that we need to reverse the byte array. */
+            int offset = bpf_key_size - key_size;
+            int k_idx = bpf_key_size - 1 - offset;
+            for (int k = 0; k < key_size; k++) {
+                key_ptr[k_idx] = match_key[k];
+                k_idx--;
+            }
+
+            match_key += key_size;
+        }
     }
 
     return key;
@@ -642,7 +692,7 @@ static int
 dp_table_entry_add(struct dpif *dpif OVS_UNUSED, uint32_t prog_id,
                    uint32_t table_id,
                    uint32_t action_id,
-                   const char *match_key, size_t key_size,
+                   const char *match_key, size_t key_size OVS_UNUSED,
                    const char *action_data, size_t data_size)
 {
     int error;
@@ -657,6 +707,7 @@ dp_table_entry_add(struct dpif *dpif OVS_UNUSED, uint32_t prog_id,
         return EEXIST;
     }
 
+    uint32_t p4info_table_id = table_id;
     error = translate_table_id(prog, &table_id);
     if (error) {
         VLOG_WARN("Datapath cannot translate table ID.");
@@ -671,18 +722,21 @@ dp_table_entry_add(struct dpif *dpif OVS_UNUSED, uint32_t prog_id,
         return EEXIST;
     }
 
-    void *key = (void *) build_key(map, match_key, key_size);
+    void *key = (void *) build_key(prog->p4info, p4info_table_id, map, match_key);
     void *value = (void *) construct_map_value(prog, map, action_id, action_data, data_size);
     error = ubpf_map_update(map, key, value);
-    free(key);
-    free(value);
     if (error) {
         VLOG_WARN("ubpf: the update_map() operation failed (status=%d).", error);
         /* FIXME: not sure what to return. */
-        return -1;
+        error = -1;
+        goto out;
     }
 
-    return 0;
+out:
+    free(key);
+    free(value);
+
+    return error;
 }
 
 /*
@@ -769,7 +823,7 @@ static int
 dp_table_entry_del(struct dpif *dpif OVS_UNUSED, uint32_t prog_id,
                    uint32_t table_id,
                    const char *match_key,
-                   size_t key_size)
+                   size_t key_size OVS_UNUSED)
 {
     int error = 0;
     struct dp_prog *prog;
@@ -783,6 +837,7 @@ dp_table_entry_del(struct dpif *dpif OVS_UNUSED, uint32_t prog_id,
         return EEXIST;
     }
 
+    uint32_t p4info_table_id = table_id;
     error = translate_table_id(prog, &table_id);
     if (error) {
         VLOG_ERR("Datapath cannot translate table ID.");
@@ -797,7 +852,7 @@ dp_table_entry_del(struct dpif *dpif OVS_UNUSED, uint32_t prog_id,
         return EEXIST;
     }
 
-    void *key = (void *) build_key(map, match_key, key_size);
+    void *key = (void *) build_key(prog->p4info, p4info_table_id, map, match_key);
     error = ubpf_map_delete(map, key);
     free(key);
     if (error) {

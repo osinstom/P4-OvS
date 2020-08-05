@@ -11,7 +11,7 @@ bin_SCRIPTS += utilities/ovs-docker \
 	utilities/ovs-tcpundump \
 	utilities/ovs-dpctl-top \
 	utilities/ovs-l3ping \
-	utilities/ovs-p4ctl.py \
+	utilities/ovs-p4ctl \
 	utilities/ovs-parse-backtrace \
 	utilities/ovs-test \
 	utilities/ovs-vlan-test

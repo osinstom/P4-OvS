@@ -28,6 +28,7 @@
 #include "ubpf_bf.h"
 #include "ubpf_countmin.h"
 #include "ubpf_hashmap.h"
+#include "ubpf_lpm_trie.h"
 
 #define MAX_SECTIONS 32
 
@@ -308,6 +309,10 @@ ubpf_load_elf(struct ubpf_vm *vm, const void *elf, size_t elf_size, char **errms
                         case UBPF_MAP_TYPE_HASHMAP:
                             map->ops = ubpf_hashmap_ops;
                             map->data = ubpf_hashmap_create(map_def);
+                            break;
+                        case UBPF_MAP_TYPE_LPM_TRIE:
+                            map->ops = ubpf_lpm_trie_ops;
+                            map->data = ubpf_lpm_trie_create(map_def);
                             break;
                         default:
                             *errmsg = ubpf_error("unrecognized map type: %d", map_def->type);
