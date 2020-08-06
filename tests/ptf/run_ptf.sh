@@ -17,15 +17,23 @@ setup_intfs() {
   ip netns exec ns1 sh -c "ip link set dev p1 up"
 }
 
-ovsdb-server --remote=punix:/usr/local/var/run/openvswitch/db.sock --remote=db:Open_vSwitch,Open_vSwitch,manager_options --pidfile --verbose --detach
+clear_ovs() {
+  ovs-vsctl del-br br-ptf-test
+  ovs-appctl -t ovs-vswitchd exit
+  ovs-appctl -t ovsdb-server exit
+}
 
+ovsdb-server --remote=punix:/usr/local/var/run/openvswitch/db.sock --remote=db:Open_vSwitch,Open_vSwitch,manager_options --pidfile --verbose --detach
 ovs-vswitchd --pidfile --detach --log-file=ovs-ptf.log
+
+trap clear_ovs EXIT
 
 python compile.py
 
 #setup_intfs
 
-ptf --failfast --test-dir tests/ --interface 0@veth0 --interface 1@veth2 --verbose
+ovs-vsctl add-br br-ptf-test -- set bridge br-ptf-test datapath_type=ubpf p4=true other_config:device_id=0
+ovs-vsctl add-port br-ptf-test veth1 -- set Interface veth1 ofport_request=33
+ovs-vsctl add-port br-ptf-test veth3 -- set Interface veth3 ofport_request=34
 
-ovs-appctl -t ovs-vswitchd exit
-ovs-appctl -t ovsdb-server exit
+ptf --failfast --test-dir tests/ --interface 0@veth0 --interface 1@veth2 --verbose

@@ -21,11 +21,11 @@ def compile_p4_to_c(filename):
     file = filename + ".p4"
     p4_file_path = os.path.join("testdata", file)
     output_file_path = os.path.join("build", filename + ".c")
-    p4info_output_file_path = os.path.join("build", filename + ".p4info.txt")
+    p4info_output_file_path = os.path.join("build", filename + ".pb.txt")
 
     if os.path.exists(p4_file_path):
         print "Compiling %s.p4 ..." % filename
-        cmd = ["p4c-ubpf", "-o", output_file_path, "--p4runtime-files", p4info_output_file_path, p4_file_path]
+        cmd = ["p4c-ubpf", "--arch", "ubpf", "-o", output_file_path, "--p4runtime-files", p4info_output_file_path, p4_file_path]
         print "Command: ", ' '.join(str(x) for x in cmd)
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         output, error = proc.communicate()

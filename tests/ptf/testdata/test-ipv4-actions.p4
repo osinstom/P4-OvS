@@ -162,14 +162,26 @@ control pipe(inout Headers_t headers, inout metadata meta, inout standard_metada
         const default_action = NoAction;
     }
 
-    apply {
+    action fwd(bit<32> port) {
         std_meta.output_action = ubpf_action.REDIRECT;
-        if (std_meta.input_port == 4) {
-            std_meta.output_port = 1;
-        } else if (std_meta.input_port == 1) {
-            std_meta.output_port = 4;
+        std_meta.output_port = port;
+    }
+
+    table fwd_tbl {
+
+        key = {
+            std_meta.input_port: exact;
         }
+
+        actions = {
+            fwd;
+        }
+
+    }
+
+    apply {
         filter_tbl.apply();
+        fwd_tbl.apply();
     }
 }
 
