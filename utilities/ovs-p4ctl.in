@@ -664,20 +664,24 @@ def p4ctl_get_pipe(client, bridge):
         print("P4Info of bridge {}:".format(bridge))
         print(p4info)
 
+def parse_match_key(key):
+    match_keys = dict()
+    mk_fields = key.split(",")
+    for mk_field in mk_fields:
+            m = mk_field.split("=")
+            if "/" in m[1]:
+                lpm_mk = m[1].split("/")
+                match_keys[m[0]] = (lpm_mk[0], int(lpm_mk[1]))
+            else:
+                match_keys[m[0]] = m[1]
+    return match_keys
+
 def parse_flow(flow):
-    match_keys = dict() # dict of "key:value" pairs
     tmp = flow.split(",action=")
     mk = tmp[0]
     act = tmp[1]
 
-    mk_fields = mk.split(",")
-    for mk_field in mk_fields:
-        m = mk_field.split("=")
-        if "/" in m[1]:
-            lpm_mk = m[1].split("/")
-            match_keys[m[0]] = (lpm_mk[0], int(lpm_mk[1]))
-        else:
-            match_keys[m[0]] = m[1]
+    match_keys = parse_match_key(mk)
     act_fields = act.split('(')
     action_name = act_fields[0]
     params = act_fields[1].split(')')[0]
@@ -719,8 +723,26 @@ def p4ctl_add_entry(client, bridge, tbl_name, flow):
 
 
 @with_client
-def p4ctl_del_entry(client, bridge):
-    raise NotImplementedError()
+def p4ctl_del_entry(client, bridge, tbl_name, match_key):
+    key = parse_match_key(match_key)
+    p4info = client.get_p4info()
+
+    if not p4info:
+        raise Exception("cannot retrieve P4Info from device {}".format(bridge))
+
+    helper = P4InfoHelper(p4info)
+
+    te = helper.buildTableEntry(
+        table_name=tbl_name,
+        match_fields=key,
+    )
+
+    update = p4runtime_pb2.Update()
+    update.type = p4runtime_pb2.Update.DELETE
+
+    update.entity.table_entry.CopyFrom(te)
+
+    client.write_update(update)
 
 def _format_entry(p4info_helper, table_entry):
     tbl_name = p4info_helper.get_name('tables', table_entry.table_id)
