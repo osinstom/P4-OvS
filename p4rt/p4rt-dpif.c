@@ -469,6 +469,14 @@ p4rt_dpif_entry_add(struct p4rt *p, struct p4rtutil_table_entry *entry)
     struct p4rt_dpif *p4rt = p4rt_dpif_cast(p);
     struct dpif *dpif = p4rt->backer->dpif;
 
+    if (entry->is_default) {
+        return dpif->dpif_class->dp_table_entry_set_default(dpif, p->dev_id,
+                                                            entry->table_id,
+                                                            entry->action_id,
+                                                            entry->action_data,
+                                                            entry->data_size);
+    }
+
     return dpif->dpif_class->dp_table_entry_add(dpif, p->dev_id, entry->table_id,
                                                 entry->action_id,
                                                 entry->match_key, entry->key_size, entry->action_data,
@@ -493,6 +501,16 @@ p4rt_dpif_fetch_entries(struct p4rt *p OVS_UNUSED,
     struct dpif *dpif = p4rt->backer->dpif;
 
     return dpif->dpif_class->dp_table_query(dpif, p->dev_id, table_id, entries);
+}
+
+static int
+p4rt_dpif_entry_get_default(struct p4rt *p, uint32_t table_id, uint32_t *action_id, char **action_data)
+{
+    struct p4rt_dpif *p4rt = p4rt_dpif_cast(p);
+    struct dpif *dpif = p4rt->backer->dpif;
+
+    return dpif->dpif_class->dp_table_entry_get_default(dpif, p->dev_id, table_id,
+                                                        action_id, action_data);
 }
 
 const struct p4rt_class p4rt_dpif_class = {
@@ -524,4 +542,5 @@ const struct p4rt_class p4rt_dpif_class = {
         p4rt_dpif_entry_add,
         p4rt_dpif_entry_del,
         p4rt_dpif_fetch_entries,
+        p4rt_dpif_entry_get_default,
 };

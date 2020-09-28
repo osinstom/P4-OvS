@@ -56,13 +56,6 @@ bounds_check(struct bounds *bounds, uint64_t offset, uint64_t size)
     return (void *)((uint64_t)bounds->base + offset);
 }
 
-static const struct ubpf_map_ops ubpf_array_ops = {
-        .map_lookup = ubpf_array_lookup,
-        .map_update = ubpf_array_update,
-        .map_delete = NULL,
-        .map_add = NULL,
-};
-
 static const struct ubpf_map_ops ubpf_bf_ops = {
         .map_lookup = ubpf_bf_lookup,
         .map_update = NULL,

@@ -178,7 +178,7 @@ struct p4rt_class {
     int (*entry_add)(struct p4rt *p, struct p4rtutil_table_entry *entry);
     int (*entry_del)(struct p4rt *p, uint32_t table_id, const char *match_key, size_t key_size);
     int (*fetch_entries)(struct p4rt *p, uint32_t table_id, struct ovs_list *entries);
-
+    int (*entry_get_default)(struct p4rt *p, uint32_t table_id, uint32_t *action_id, char **action_data);
 };
 
 extern const struct p4rt_class p4rt_dpif_class;

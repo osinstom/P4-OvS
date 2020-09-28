@@ -43,6 +43,8 @@ struct dp_prog {
 
     struct hmap table_ids;   /* Provide mapping between table IDs used by Control Plane API and uBPF */
     struct hmap action_ids;  /* Provide mapping between action IDs used by Control Plane API and uBPF */
+
+    bool default_action_set; /* Indicate if default action has been set. */
 };
 
 struct dp_ubpf {
@@ -529,6 +531,7 @@ dp_prog_set(struct dpif *dpif OVS_UNUSED, struct dpif_prog prog)
     dp_prog->p4info = prog.p4info;
     hmap_init(&dp_prog->table_ids);
     hmap_init(&dp_prog->action_ids);
+    dp_prog->default_action_set = false;
 
     dp_progs[prog.id] = dp_prog;
     ovs_mutex_unlock(&dp_prog_mutex);
@@ -739,6 +742,57 @@ out:
     return error;
 }
 
+static int
+dp_table_entry_set_default(struct dpif *dpif OVS_UNUSED, uint32_t prog_id,
+                           uint32_t table_id,
+                           uint32_t action_id,
+                           const char *action_data, size_t data_size)
+{
+    int error;
+    struct dp_prog *prog;
+
+    ovs_mutex_lock(&dp_prog_mutex);
+    prog = dp_progs[prog_id];
+    ovs_mutex_unlock(&dp_prog_mutex);
+
+    if (!prog) {
+        /* uBPF program is not installed. */
+        return EEXIST;
+    }
+
+    error = translate_table_id(prog, &table_id);
+    if (error) {
+        VLOG_WARN("Datapath cannot translate table ID.");
+        return EEXIST;
+    }
+
+    /* The default action map's identifier */
+    uint32_t default_table_id = table_id + 1;
+    struct ubpf_vm *vm = prog->vm;
+    struct ubpf_map *map = vm->ext_maps[default_table_id];
+
+    if (!map) {
+        VLOG_WARN("BPF map %d does not exist.", default_table_id);
+        return EEXIST;
+    }
+
+    uint32_t zero_key = 0;
+    void *value = (void *) construct_map_value(prog, map, action_id, action_data, data_size);
+    error = ubpf_map_update(map, &zero_key, value);
+
+    if (error) {
+        VLOG_WARN("ubpf: the update_map() operation failed (status=%d).", error);
+        /* FIXME: not sure what to return. */
+        error = -1;
+        goto out;
+    }
+
+out:
+    prog->default_action_set = true;
+    free(value);
+    return error;
+}
+
 /*
  * As we retrieve data from uBPF VM in a network byte-order, we need to convert it to host byte-order.
  * If map->key_size is greater than 'key_size' defined in P4 program 'offset' is used to copy only the
@@ -753,6 +807,54 @@ alloc_and_swap(char *data, size_t size, int offset)
     }
     return buf;
 }
+
+static int
+dp_table_entry_get_default(struct dpif *dpif OVS_UNUSED, uint32_t prog_id,
+                           uint32_t table_id, uint32_t *action_id, char **action_data)
+{
+    int error;
+    struct dp_prog *prog;
+
+    ovs_mutex_lock(&dp_prog_mutex);
+    prog = dp_progs[prog_id];
+    ovs_mutex_unlock(&dp_prog_mutex);
+
+    if (!prog) {
+        /* uBPF program is not installed. */
+        return EEXIST;
+    }
+
+    if (!prog->default_action_set) {
+        /* Return empty action. */
+        return 0;
+    }
+
+    error = translate_table_id(prog, &table_id);
+    if (error) {
+        VLOG_WARN("Datapath cannot translate table ID.");
+        return EEXIST;
+    }
+
+    uint32_t default_table_id = table_id + 1;
+    struct ubpf_vm *vm = prog->vm;
+    struct ubpf_map *map = vm->ext_maps[default_table_id];
+
+    if (!map) {
+        VLOG_WARN("BPF map %d does not exist.", default_table_id);
+        return EEXIST;
+    }
+
+    uint32_t zero_key = 0;
+    void *value = ubpf_map_lookup(map, &zero_key);
+
+    uint32_t *bpf_act_id = (uint32_t *) value;
+    *action_id = get_p4info_action_id(prog, *bpf_act_id);
+    char *datap = ((char* ) value + sizeof *action_id);
+    *action_data = alloc_and_swap(datap, map->value_size - sizeof *action_id, 0);
+
+    return 0;
+}
+
 
 static int
 dp_table_query(struct dpif *dpif OVS_UNUSED, uint32_t prog_id,
@@ -797,6 +899,7 @@ dp_table_query(struct dpif *dpif OVS_UNUSED, uint32_t prog_id,
         char *key = alloc_and_swap(datap, map->key_size, map->key_size - pi_p4info_table_match_key_size(prog->p4info, p4info_table_id));
         datap = datap + map->key_size;
 
+        // TODO: do we need to allocate new memory for action_id?
         uint32_t *action_id = (uint32_t *) alloc_and_swap(datap, sizeof(uint32_t), 0);
         datap = datap + sizeof(*action_id);
 
@@ -940,6 +1043,8 @@ const struct dpif_class dpif_ubpf_class = {
         dp_prog_set,
         dp_prog_unset,
         dp_table_entry_add,
+        dp_table_entry_set_default,
+        dp_table_entry_get_default,
         dp_table_query,
         dp_table_entry_del,
 };

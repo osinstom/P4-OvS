@@ -23,11 +23,12 @@ struct p4rtutil_table_entry {
     struct ovs_list list_node;
     uint64_t handle_id;
     uint32_t priority;
+    bool is_default;
     uint32_t table_id;
     uint32_t action_id;
     const char *match_key;
     size_t key_size;
-    const char *action_data;
+    char *action_data;
     size_t data_size;
 };
 

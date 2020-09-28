@@ -71,7 +71,10 @@ control pipe(inout Headers_t hdr, inout metadata meta, inout standard_metadata s
 
         actions = {
             forward();
+            NoAction;
         }
+
+        default_action = forward(2);
 
     }
 

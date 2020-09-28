@@ -632,6 +632,17 @@ struct dpif_class {
                               const char *match_key, size_t key_size,
                               const char *action_data, size_t data_size);
 
+    int (*dp_table_entry_set_default)(struct dpif *, uint32_t prog_id,
+                                      uint32_t table_id,
+                                      uint32_t action_id,
+                                      const char *action_data,
+                                      size_t data_size);
+
+    int (*dp_table_entry_get_default)(struct dpif *, uint32_t prog_id,
+                                      uint32_t table_id,
+                                      uint32_t *action_id,
+                                      char **action_data);
+
     int (*dp_table_query)(struct dpif *, uint32_t prog_id,
                           uint32_t table_id,
                           struct ovs_list *entries);

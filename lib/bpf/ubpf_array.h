@@ -18,3 +18,10 @@ void *ubpf_array_create(const struct ubpf_map_def *map_def);
 void *ubpf_array_lookup(const struct ubpf_map *map, const void *key);
 int ubpf_array_update(struct ubpf_map *map, const void *key,
                              void *value);
+
+static const struct ubpf_map_ops ubpf_array_ops = {
+        .map_lookup = ubpf_array_lookup,
+        .map_update = ubpf_array_update,
+        .map_delete = NULL,
+        .map_add = NULL,
+};

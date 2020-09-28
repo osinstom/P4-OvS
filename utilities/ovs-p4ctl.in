@@ -676,17 +676,21 @@ def parse_match_key(key):
                 match_keys[m[0]] = m[1]
     return match_keys
 
+def parse_action(action):
+    act_fields = action.split('(')
+    action_name = act_fields[0]
+    params = act_fields[1].split(')')[0]
+    act_data = params.split(',')
+    act_data = [ a for a in act_data]
+    return action_name, act_data
+
 def parse_flow(flow):
     tmp = flow.split(",action=")
     mk = tmp[0]
     act = tmp[1]
 
     match_keys = parse_match_key(mk)
-    act_fields = act.split('(')
-    action_name = act_fields[0]
-    params = act_fields[1].split(')')[0]
-    act_data = params.split(',')
-    act_data = [ a for a in act_data]
+    action_name, act_data = parse_action(act)
     return match_keys, action_name, act_data
 
 @with_client
@@ -721,6 +725,59 @@ def p4ctl_add_entry(client, bridge, tbl_name, flow):
 
     client.write_update(update)
 
+@with_client
+def p4ctl_set_default_entry(client, bridge, tbl_name, action):
+    """
+    set-default-entry SWITCH TABLE ACTION
+    Example:
+        ovs-p4ctl set-default-entry br0 pipe.filter_tbl pipe.push_mpls(10)
+    """
+
+    p4info = client.get_p4info()
+    if not p4info:
+        raise Exception("cannot retrieve P4Info from device {}".format(bridge))
+    helper = P4InfoHelper(p4info)
+
+    action_name, action_data = parse_action(action)
+    te = helper.buildTableEntry(
+        table_name=tbl_name,
+        default_action=True,
+        action_name=action_name,
+        action_params={
+            a.name: int(action_data[idx]) for idx, a in enumerate(helper.get_action_params(action_name))
+        }
+    )
+
+    update = p4runtime_pb2.Update()
+    update.type = p4runtime_pb2.Update.MODIFY
+    update.entity.table_entry.CopyFrom(te)
+
+    client.write_update(update)
+
+@with_client
+def p4ctl_get_default_entry(client, bridge, tbl_name):
+    """
+    get-default-entry SWITCH TABLE
+    Example:
+        ovs-p4ctl get-default-entry br0 pipe.filter_tbl
+    """
+    p4info = client.get_p4info()
+    if not p4info:
+        raise Exception("cannot retrieve P4Info from device {}".format(bridge))
+    helper = P4InfoHelper(p4info)
+
+    entity = p4runtime_pb2.Entity()
+    table_entry = entity.table_entry
+    table_entry.table_id = helper.get_tables_id(tbl_name)
+    table_entry.is_default_action = True
+
+    print("Default table entry for bridge {}:".format(bridge))
+    for response in client.read_one(entity):
+            for entry in response.entities:
+                try:
+                    print(_format_entry(helper, entry.table_entry))
+                except AttributeError:
+                    print(" No default entry set!")
 
 @with_client
 def p4ctl_del_entry(client, bridge, tbl_name, match_key):
@@ -800,6 +857,8 @@ all_commands = {
     "set-pipe": (p4ctl_set_pipe, 3),
     "get-pipe": (p4ctl_get_pipe, 1),
     "add-entry": (p4ctl_add_entry, 3),
+    "set-default-entry": (p4ctl_set_default_entry, 3),
+    "get-default-entry": (p4ctl_get_default_entry, 2),
     "del-entry": (p4ctl_del_entry, 2),
     "dump-entries": (p4ctl_dump_entries, 1),
 }

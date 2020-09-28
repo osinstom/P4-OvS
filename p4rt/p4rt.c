@@ -839,6 +839,100 @@ pi_status_t _pi_table_entry_add(pi_session_handle_t session_handle OVS_UNUSED,
     return PI_STATUS_SUCCESS;
 }
 
+pi_status_t _pi_table_default_action_set(pi_session_handle_t session_handle OVS_UNUSED,
+                                         pi_dev_tgt_t dev_tgt,
+                                         pi_p4_id_t table_id,
+                                         const pi_table_entry_t *table_entry) {
+    int error;
+    struct p4rtutil_table_entry entry;
+
+    struct p4rt *p4rt = p4rt_lookup_by_dev_id(dev_tgt.dev_id);
+    if (!p4rt) {
+        /* P4 Device does not exist. */
+        return PI_STATUS_DEV_OUT_OF_RANGE;
+    }
+
+    entry.table_id = table_id;
+    entry.action_id = table_entry->entry.action_data->action_id;
+    entry.action_data = table_entry->entry.action_data->data;
+    entry.data_size = table_entry->entry.action_data->data_size;
+    entry.is_default = true;
+    error = p4rt->p4rt_class->entry_add(p4rt, &entry);
+    if (error) {
+        VLOG_WARN_RL(&rl, "failed to set default table entry for table '%s' of device %lu (%s)",
+                     pi_p4info_table_name_from_id(p4rt->p4info, table_id),
+                     dev_tgt.dev_id, ovs_strerror(error));
+        return PI_STATUS_TARGET_ERROR;
+    }
+
+    return PI_STATUS_SUCCESS;
+}
+
+pi_status_t _pi_table_default_action_get(pi_session_handle_t session_handle OVS_UNUSED,
+                                         pi_dev_tgt_t dev_tgt,
+                                         pi_p4_id_t table_id,
+                                         pi_table_entry_t *table_entry) {
+    int error;
+    uint32_t action_id = 0;
+    char *action_data = NULL;
+
+    struct p4rt *p4rt = p4rt_lookup_by_dev_id(dev_tgt.dev_id);
+    if (!p4rt) {
+        /* P4 Device does not exist. */
+        return PI_STATUS_DEV_OUT_OF_RANGE;
+    }
+
+    error = p4rt->p4rt_class->entry_get_default(p4rt, table_id, &action_id, &action_data);
+    if (error) {
+        VLOG_WARN_RL(&rl, "failed to get default table entry for table '%s' of device %lu (%s)",
+                     pi_p4info_table_name_from_id(p4rt->p4info, table_id),
+                     dev_tgt.dev_id, ovs_strerror(error));
+    }
+
+    table_entry->entry_properties = NULL;
+    table_entry->direct_res_config = NULL;
+    if (action_id == 0) {
+        table_entry->entry_type = PI_ACTION_ENTRY_TYPE_NONE;
+        goto out;
+    }
+
+    table_entry->entry_type = PI_ACTION_ENTRY_TYPE_DATA;
+    uint32_t adata_size = pi_p4info_action_data_size(p4rt->p4info, action_id);
+    pi_action_data_t *adata = xzalloc(sizeof(pi_action_data_t) + adata_size);
+    adata->p4info = p4rt->p4info;
+    adata->action_id = action_id;
+    adata->data_size = adata_size;
+    adata->data = action_data;
+    table_entry->entry.action_data = adata;
+
+out:
+    return PI_STATUS_SUCCESS;
+}
+
+pi_status_t _pi_table_default_action_reset(pi_session_handle_t session_handle OVS_UNUSED,
+                                           pi_dev_tgt_t dev_tgt OVS_UNUSED,
+                                           pi_p4_id_t table_id OVS_UNUSED) {
+    return PI_STATUS_NOT_IMPLEMENTED_BY_TARGET;
+}
+
+pi_status_t _pi_table_default_action_get_handle(
+        pi_session_handle_t session_handle OVS_UNUSED, pi_dev_tgt_t dev_tgt OVS_UNUSED,
+        pi_p4_id_t table_id OVS_UNUSED, pi_entry_handle_t *entry_handle OVS_UNUSED) {
+    return PI_STATUS_NOT_IMPLEMENTED_BY_TARGET;
+}
+
+pi_status_t _pi_table_default_action_done(pi_session_handle_t session_handle OVS_UNUSED,
+                                          pi_table_entry_t *table_entry) {
+    if (table_entry->entry_type == PI_ACTION_ENTRY_TYPE_DATA) {
+        pi_action_data_t *action_data = table_entry->entry.action_data;
+        if (action_data) {
+            free(action_data);
+        }
+    }
+
+    return PI_STATUS_SUCCESS;
+}
+
 static char *
 emit_pi_table_entries(struct p4rt *p, pi_p4_id_t table_id, struct ovs_list *entries, size_t *entries_size)
 {
