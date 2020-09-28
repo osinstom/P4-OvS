@@ -83,6 +83,7 @@ CLEANFILES += \
 	utilities/ovs-l3ping \
 	utilities/ovs-lib \
 	utilities/ovs-ofctl.8 \
+	utilities/ovs-p4ctl \
 	utilities/ovs-parse-backtrace \
 	utilities/ovs-pcap \
 	utilities/ovs-pcap.1 \

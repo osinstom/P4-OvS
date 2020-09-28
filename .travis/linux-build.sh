@@ -140,40 +140,83 @@ function install_dpdk()
     echo "${DPDK_VER}" > ${VERSION_FILE}
 }
 
+function install_protobuf()
+{
+  if [ -d "$(pwd)/protobuf" ]; then
+    echo "Found cached protobuf library $(pwd)/protobuf"
+    pushd protobuf
+    sudo make install
+    sudo ldconfig
+    popd
+    return
+  fi
+
+  git clone https://github.com/google/protobuf.git
+  pushd protobuf
+  git checkout tags/v3.6.1
+  ./autogen.sh
+  ./configure
+  make
+  sudo make install
+  sudo ldconfig
+  popd
+}
+
+function install_grpc()
+{
+  if [ -d "$(pwd)/grpc" ]; then
+    echo "Found cached grpc library $(pwd)/grpc"
+    pushd grpc
+    sudo make install
+    sudo ldconfig
+    popd
+    return
+  fi
+
+  git clone https://github.com/google/grpc.git
+  pushd grpc
+  git checkout tags/v1.17.2
+  git submodule update --init --recursive
+  make
+  sudo make install
+  sudo ldconfig
+  popd
+}
+
+function install_pilib()
+{
+  if [ -d "$(pwd)/PI" ]; then
+    echo "Found cached PI library $(pwd)/PI"
+    pushd PI
+    sudo make install
+    sudo ldconfig
+    popd
+    return
+  fi
+
+  git clone -b p4-ovs https://github.com/osinstom/PI.git
+  pushd PI
+  git submodule update --init --recursive
+  ./autogen.sh
+  ./configure --with-proto --with-fe-cpp
+  make
+  sudo make install
+  sudo ldconfig
+  popd
+}
+
 function install_pi()
 {
-    mkdir -p pi_dir
+    if [ -d "$(pwd)/pi_dir" ]; then
+      echo "Found cached pi_dir in $(pwd)/pi_dir"
+    else
+      mkdir pi_dir
+    fi
+
     pushd pi_dir
-
-    git clone https://github.com/google/protobuf.git
-    pushd protobuf
-    git checkout tags/v3.6.1
-    ./autogen.sh
-    ./configure
-    make -j4
-    sudo make install
-    sudo ldconfig
-    popd
-
-    git clone https://github.com/google/grpc.git
-    pushd grpc
-    git checkout tags/v1.17.2
-    git submodule update --init --recursive
-    make -j4
-    sudo make install
-    sudo ldconfig
-    popd
-
-    git clone -b p4-ovs https://github.com/osinstom/PI.git
-    pushd PI
-    git submodule update --init --recursive
-    ./autogen.sh
-    ./configure --with-proto
-    make -j4
-    sudo make install
-    sudo ldconfig
-    popd
-
+    install_protobuf
+    install_grpc
+    install_pilib
     popd
 }
 
@@ -216,10 +259,6 @@ if [ "$DPDK" ] || [ "$DPDK_SHARED" ]; then
     fi
 fi
 
-if [ "$WITH_P4" ]; then
-    install_pi
-fi
-
 if [ "$CC" = "clang" ]; then
     CFLAGS_FOR_OVS="${CFLAGS_FOR_OVS} -Wno-error=unused-command-line-argument"
 elif [ "$M32" ]; then
@@ -238,6 +277,8 @@ fi
 
 save_OPTS="${OPTS} $*"
 OPTS="${EXTRA_OPTS} ${save_OPTS}"
+
+install_pi
 
 if [ "$TESTSUITE" ]; then
     # 'distcheck' will reconfigure with required options.
