@@ -46,11 +46,14 @@ ovs = None
 USAGE = "ovs-p4ctl: P4Runtime switch management utility\n" \
         "usage: ovs-p4ctl [OPTIONS] COMMAND [ARG...]\n" \
         "\nFor P4Runtime switches:\n" \
-        "  show SWITCH                 show P4Runtime switch information\n" \
-        "  set-pipe SWITCH PROGRAM P4INFO  set P4 pipeline for the swtich\n" \
-        "  get-pipe SWITCH             print raw P4Info representation of P4 program\n" \
-        "  add-entry SWITCH TABLE FLOW  adds new table entry\n" \
-        "  dump-entries SWITCH [TBL]   print table entries\n"
+        "  show SWITCH                         show P4Runtime switch information\n" \
+        "  set-pipe SWITCH PROGRAM P4INFO      set P4 pipeline for the swtich\n" \
+        "  get-pipe SWITCH                     print raw P4Info representation of P4 program\n" \
+        "  add-entry SWITCH TABLE FLOW         adds new table entry\n" \
+        "  del-entry SWITCH TABLE KEY          delete a table entry with KEY from TABLE\n" \
+        "  dump-entries SWITCH [TBL]           print table entries\n" \
+        "  set-default-entry SWITCH TBL ACTION sets a default table entry for TBL\n" \
+        "  get-default-entry SWITCH TBL print  default table entry for TBL\n"
 
 def usage():
     print(USAGE)
