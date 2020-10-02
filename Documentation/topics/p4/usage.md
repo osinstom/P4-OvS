@@ -10,22 +10,24 @@ The current version of P4-OVS support the following `ovs-p4ctl`'s commands:
 
 ```bash
 $ ovs-p4ctl --help
-  usage: ovs-p4ctl: P4Runtime switch management utility
-  usage: ovs-p4ctl [OPTIONS] COMMAND [ARG...]
-  
-  For P4Runtime switches:
-    show SWITCH                     show P4Runtime switch information
-    set-pipe SWITCH PROGRAM P4INFO  set P4 pipeline for the swtich
-    get-pipe SWITCH                 print raw P4Info representation of P4 program
-    add-entry SWITCH TABLE FLOW     add new table entry
-    del-entry SWITCH TABLE KEY      delete a table entry with KEY from TABLE
-    dump-entries SWITCH [TBL]       print table entries
-  
-  positional arguments:
-    command     Subcommand to run
-  
-  optional arguments:
-    -h, --help  show this help message and exit
+usage: ovs-p4ctl: P4Runtime switch management utility
+usage: ovs-p4ctl [OPTIONS] COMMAND [ARG...]
+
+For P4Runtime switches:
+  show SWITCH                         show P4Runtime switch information
+  set-pipe SWITCH PROGRAM P4INFO      set P4 pipeline for the swtich
+  get-pipe SWITCH                     print raw P4Info representation of P4 program
+  add-entry SWITCH TABLE FLOW         adds new table entry
+  del-entry SWITCH TABLE KEY          delete a table entry with KEY from TABLE
+  dump-entries SWITCH [TBL]           print table entries
+  set-default-entry SWITCH TBL ACTION sets a default table entry for TBL
+  get-default-entry SWITCH TBL print  default table entry for TBL
+
+positional arguments:
+  command     Subcommand to run
+
+optional arguments:
+  -h, --help  show this help message and exit
 ```
 
 To show information about a P4Runtime bridge use `ovs-p4ctl show`, for example:
@@ -139,6 +141,18 @@ To delete a table entry use the following command:
 
 ```bash
 $ ovs-p4ctl del-entry br-test pipe.test_tbl hdr.ethernet.srcAddr=12:e1:0e:f6:3f:ff
+```
+
+To set a default entry use:
+
+```bash
+$ ovs-p4ctl set-default-entry br-test pipe.test_tbl "pipe.forward(1)"
+```
+
+You can also get a default entry:
+
+```bash
+$ ovs-p4ctl get-default-entry br-test pipe.test_tbl
 ```
 
 

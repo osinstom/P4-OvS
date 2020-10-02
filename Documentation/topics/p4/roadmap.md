@@ -13,33 +13,16 @@ There must be some initial decisions made before the actual code development wil
 
 * Create the name of the project :) The "P4-OvS" name is just a draft name.
 
-Features
+Upcoming features
 --------
-
-The following features are considered for the first release of the project:
-
-* **P4Runtime switch abstractions for OVS** - Build software abstractions to manage reconfigurable P4 datapath and integrate P4Runtime switch as a new type of OVS bridge.
-
-* **P4Runtime interface** - Create gRPC server as part of P4Runtime switch and expose P4Runtime control interface.
-
-* **uBPF datapath** - Make use of [p4c-ubpf](https://github.com/p4lang/p4c/tree/master/backends/ubpf) to generate userspace packet processing pipeline from the P4 program and create a new OVS datapath able to consume this pipeline.
-
-* **ovs-p4ctl utility** - the P4 bridge should have its own management CLI tool. The first version should support installing and deleting P4 program plus adding/updating/removing/reading table entries.
-
-* **Port forwarding** - develop mechanisms in uBPF datapath that allow to determine and enforce output port from within the P4 program.
-
-The following features should be added in the further releases of the project:
 
 * **XDP datapath** - the modular design of P4-OvS enables integration of different datapaths. XDP should be integrated with OvS.p4 too.
 
 * **Support for Portable Switch Architecture** - p4c-ubpf does not support PSA yet. The target P4 architecture for this project should be PSA, but it needs to be implemented in p4c-ubpf.
 
-* **Enhancements to P4 compiler** - p4c-ubpf still does not support some P4 features (e.g. LPM match). P4-OvS should contribute further enhancements to p4c-ubpf.
+* **Enhancements to P4 compiler** - p4c-ubpf still does not support some P4 features (e.g. some P4 externs). P4-OvS should contribute further enhancements to `p4c-ubpf` and/or `p4c-xdp`.
+
+* **Enhancements to the implementation of the P4Runtime interface** - currently, only a subset of the P4 specification is implemented by P4-OvS. We will gradually improve P4-OvS to be in line with the P4 specs.
 
 * **Performance optimizations**
-
-
-
-
-
 

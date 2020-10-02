@@ -5,13 +5,22 @@ Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## Unreleased
 
+## 0.5.0
+
+### Added 
+
+- Support for the Counter extern (Read RPC for P4-OvS and implementation of the Counter extern in p4c-ubpf)
+- Support for the Register extern (Write and Read RPC for P4-OvS)
+
 ## 0.4.0
 
 ### Added
 
-- Implementation of ovs-p4ctl utility tool (supported commands: show, set-pipe, get-pipe, add-entry, del-entry, dump-entries)
+- Implementation of ovs-p4ctl utility tool (supported commands: show, set-pipe, get-pipe, add-entry, del-entry, dump-entries, set-default-entry, get-default-entry)
 - Support for Read RPC to fetch P4 Table Entries
 - Support for Write RPC to delete P4 Table Entry
+- Support for Write RPC to insert a default table entry
+- Support for Read RPC to get a default table entry
 
 ## 0.3.0 - 2020-07-01
 
