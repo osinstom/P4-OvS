@@ -122,6 +122,14 @@ struct tc_flower_key {
     ovs_u128 ct_label;
 
     struct {
+        ovs_be32 spa;
+        ovs_be32 tpa;
+        struct eth_addr sha;
+        struct eth_addr tha;
+        uint8_t opcode;
+    } arp;
+
+    struct {
         ovs_be32 ipv4_src;
         ovs_be32 ipv4_dst;
         uint8_t rewrite_ttl;
@@ -304,6 +312,14 @@ is_tcf_id_eq(struct tcf_id *id1, struct tcf_id *id2)
            && id1->chain == id2->chain;
 }
 
+enum tc_offload_policy {
+    TC_POLICY_NONE = 0,
+    TC_POLICY_SKIP_SW,
+    TC_POLICY_SKIP_HW
+};
+
+BUILD_ASSERT_DECL(TC_POLICY_NONE == 0);
+
 struct tc_flower {
     struct tc_flower_key key;
     struct tc_flower_key mask;
@@ -329,6 +345,8 @@ struct tc_flower {
     bool needs_full_ip_proto_mask;
 
     enum tc_offloaded_state offloaded_state;
+    /* Used to force skip_hw when probing tc features. */
+    enum tc_offload_policy tc_policy;
 };
 
 /* assert that if we overflow with a masked write of uint32_t to the last byte
@@ -341,10 +359,11 @@ BUILD_ASSERT_DECL(offsetof(struct tc_flower, rewrite)
 int tc_replace_flower(struct tcf_id *id, struct tc_flower *flower);
 int tc_del_filter(struct tcf_id *id);
 int tc_get_flower(struct tcf_id *id, struct tc_flower *flower);
-int tc_dump_flower_start(struct tcf_id *id, struct nl_dump *dump);
+int tc_dump_flower_start(struct tcf_id *id, struct nl_dump *dump, bool terse);
 int parse_netlink_to_tc_flower(struct ofpbuf *reply,
                                struct tcf_id *id,
-                               struct tc_flower *flower);
+                               struct tc_flower *flower,
+                               bool terse);
 void tc_set_policy(const char *policy);
 
 #endif /* tc.h */

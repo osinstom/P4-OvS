@@ -56,6 +56,7 @@ COVERAGE_DEFINE(handler_duplicate_upcall);
 COVERAGE_DEFINE(upcall_ukey_contention);
 COVERAGE_DEFINE(upcall_ukey_replace);
 COVERAGE_DEFINE(revalidate_missed_dp_flow);
+COVERAGE_DEFINE(upcall_flow_limit_hit);
 
 /* A thread that reads upcalls from dpif, forwards each upcall's packet,
  * and possibly sets up a kernel flow as a cache. */
@@ -1281,6 +1282,7 @@ should_install_flow(struct udpif *udpif, struct upcall *upcall)
 
     atomic_read_relaxed(&udpif->flow_limit, &flow_limit);
     if (udpif_get_n_flows(udpif) >= flow_limit) {
+        COVERAGE_INC(upcall_flow_limit_hit);
         VLOG_WARN_RL(&rl, "upcall: datapath flow limit reached");
         return false;
     }
@@ -2501,8 +2503,7 @@ ukey_netdev_unref(struct udpif_key *ukey)
 static void
 ukey_to_flow_netdev(struct udpif *udpif, struct udpif_key *ukey)
 {
-    const struct dpif *dpif = udpif->dpif;
-    const struct dpif_class *dpif_class = dpif->dpif_class;
+    const char *dpif_type_str = dpif_normalize_type(dpif_type(udpif->dpif));
     const struct nlattr *k;
     unsigned int left;
 
@@ -2515,7 +2516,7 @@ ukey_to_flow_netdev(struct udpif *udpif, struct udpif_key *ukey)
 
         if (type == OVS_KEY_ATTR_IN_PORT) {
             ukey->in_netdev = netdev_ports_get(nl_attr_get_odp_port(k),
-                                               dpif_class);
+                                               dpif_type_str);
         } else if (type == OVS_KEY_ATTR_TUNNEL) {
             struct flow_tnl tnl;
             enum odp_key_fitness res;
@@ -2576,6 +2577,25 @@ udpif_update_flow_pps(struct udpif *udpif, struct udpif_key *ukey,
     ukey->flow_time = udpif->dpif->current_ms;
 }
 
+static long long int
+udpif_update_used(struct udpif *udpif, struct udpif_key *ukey,
+                  struct dpif_flow_stats *stats)
+    OVS_REQUIRES(ukey->mutex)
+{
+    if (!udpif->dump->terse) {
+        return ukey->created;
+    }
+
+    if (stats->n_packets > ukey->stats.n_packets) {
+        stats->used = udpif->dpif->current_ms;
+    } else if (ukey->stats.used) {
+        stats->used = ukey->stats.used;
+    } else {
+        stats->used = ukey->created;
+    }
+    return stats->used;
+}
+
 static void
 revalidate(struct revalidator *revalidator)
 {
@@ -2624,6 +2644,10 @@ revalidate(struct revalidator *revalidator)
          *       datapath flows, so we will recover before all the flows are
          *       gone.) */
         n_dp_flows = udpif_get_n_flows(udpif);
+        if (n_dp_flows >= flow_limit) {
+            COVERAGE_INC(upcall_flow_limit_hit);
+        }
+
         kill_them_all = n_dp_flows > flow_limit * 2;
         max_idle = n_dp_flows > flow_limit ? 100 : ofproto_max_idle;
 
@@ -2631,6 +2655,7 @@ revalidate(struct revalidator *revalidator)
         for (f = flows; f < &flows[n_dumped]; f++) {
             long long int used = f->stats.used;
             struct recirc_refs recircs = RECIRC_REFS_EMPTY_INITIALIZER;
+            struct dpif_flow_stats stats = f->stats;
             enum reval_result result;
             struct udpif_key *ukey;
             bool already_dumped;
@@ -2675,12 +2700,12 @@ revalidate(struct revalidator *revalidator)
             }
 
             if (!used) {
-                used = ukey->created;
+                used = udpif_update_used(udpif, ukey, &stats);
             }
             if (kill_them_all || (used && used < now - max_idle)) {
                 result = UKEY_DELETE;
             } else {
-                result = revalidate_ukey(udpif, ukey, &f->stats, &odp_actions,
+                result = revalidate_ukey(udpif, ukey, &stats, &odp_actions,
                                          reval_seq, &recircs,
                                          f->attrs.offloaded);
             }

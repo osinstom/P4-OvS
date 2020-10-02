@@ -54,7 +54,6 @@
 #include "ovs-thread.h"
 #include "ofproto-provider.h"
 #include "util.h"
-#include "ovs-thread.h"
 
 struct dpif_flow_stats;
 struct ofproto_async_msg;
@@ -202,7 +201,10 @@ struct group_dpif *group_dpif_lookup(struct ofproto_dpif *,
     DPIF_SUPPORT_FIELD(bool, ct_timeout, "Conntrack timeout policy")        \
                                                                             \
     /* True if the datapath supports explicit drop action. */               \
-    DPIF_SUPPORT_FIELD(bool, explicit_drop_action, "Explicit Drop action")
+    DPIF_SUPPORT_FIELD(bool, explicit_drop_action, "Explicit Drop action")  \
+                                                                            \
+    /* True if the datapath supports balance_tcp optimization */            \
+    DPIF_SUPPORT_FIELD(bool, lb_output_action, "Optimized Balance TCP mode")
 
 
 /* Stores the various features which the corresponding backer supports. */
@@ -382,6 +384,11 @@ int ofproto_dpif_add_internal_flow(struct ofproto_dpif *,
                                    struct rule **rulep);
 int ofproto_dpif_delete_internal_flow(struct ofproto_dpif *, struct match *,
                                       int priority);
+int ofproto_dpif_add_lb_output_buckets(struct ofproto_dpif *, uint32_t bond_id,
+                                       const ofp_port_t *slave_map);
+int ofproto_dpif_delete_lb_output_buckets(struct ofproto_dpif *,
+                                          uint32_t bond_id);
+bool ovs_lb_output_action_supported(struct ofproto_dpif *);
 
 bool ovs_native_tunneling_is_on(struct ofproto_dpif *);
 

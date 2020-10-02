@@ -1,4 +1,11 @@
-Post-v2.13.0
+Post-v2.14.0
+---------------------
+   - OVSDB:
+     * New unixctl command 'ovsdb-server/get-db-storage-status' to show the
+       status of the storage that's backing a database.
+
+
+v2.14.0 - 17 Aug 2020
 ---------------------
    - ovs-vswitchd no longer deletes datapath flows on exit by default.
    - OpenFlow:
@@ -9,13 +16,38 @@ Post-v2.13.0
    - DPDK:
      * Deprecated DPDK pdump packet capture support removed.
      * Deprecated DPDK ring ports (dpdkr) are no longer supported.
+     * Add hardware offload support for VLAN Push/Pop actions (experimental).
+     * Add hardware offload support for matching IPv6 protocol (experimental).
+     * Add hardware offload support for set of IPv6 src/dst/ttl
+       and tunnel push-output actions (experimental).
+     * OVS validated with DPDK 19.11.2, due to the inclusion of fixes for
+       CVE-2020-10722, CVE-2020-10723, CVE-2020-10724, CVE-2020-10725 and
+       CVE-2020-10726, this DPDK version is strongly recommended to be used.
+     * New 'ovs-appctl dpdk/log-list' and 'ovs-appctl dpdk/log-set' commands
+       to list and change log levels in DPDK components.
+     * Vhost-user Dequeue zero-copy support is deprecated and will be removed
+       in the next release.
    - Linux datapath:
      * Support for kernel versions up to 5.5.x.
    - AF_XDP:
      * New netdev class 'afxdp-nonpmd' for netdev-afxdp to save CPU cycles
        by enabling interrupt mode.
    - Userspace datapath:
+     * Removed artificial datapath flow limit that was 65536.
+       Now number of datapath flows is fully controlled by revalidators and the
+       'other_config:flow-limit' knob.
      * Add support for conntrack zone-based timeout policy.
+     * New configuration knob 'other_config:lb-output-action' for bond ports
+       that enables new datapath action 'lb_output' to avoid recirculation
+       in balance-tcp mode.  Disabled by default.
+     * Add runtime CPU ISA detection to allow optimized ISA functions
+     * Add support for dynamically changing DPCLS subtable lookup functions
+     * Add ISA optimized DPCLS lookup function using AVX512
+   - New configuration knob 'other_config:bond-primary' for AB bonds
+     that specifies interface will be the preferred port if it is active.
+   - Tunnels: TC Flower offload
+     * Tunnel Local endpoint address masked match are supported.
+     * Tunnel Romte endpoint address masked match are supported.
 
 
 v2.13.0 - 14 Feb 2020

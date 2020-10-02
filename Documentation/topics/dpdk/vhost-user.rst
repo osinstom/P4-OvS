@@ -25,9 +25,9 @@
 DPDK vHost User Ports
 =====================
 
-OVS userspace switching supports supports vHost user ports as a
-primary way to interact with guests.  For more information on vHost
-User, refer to the `QEMU documentation`_ on same.
+OVS userspace switching supports vHost user ports as a primary way to
+interact with guests.  For more information on vHost User, refer to
+the `QEMU documentation`_ on same.
 
 .. important::
 
@@ -392,9 +392,9 @@ To begin, instantiate a guest as described in :ref:`dpdk-vhost-user` or
 DPDK sources to VM and build DPDK::
 
     $ cd /root/dpdk/
-    $ wget https://fast.dpdk.org/rel/dpdk-19.11.tar.xz
-    $ tar xf dpdk-19.11.tar.xz
-    $ export DPDK_DIR=/root/dpdk/dpdk-19.11
+    $ wget https://fast.dpdk.org/rel/dpdk-19.11.2.tar.xz
+    $ tar xf dpdk-19.11.2.tar.xz
+    $ export DPDK_DIR=/root/dpdk/dpdk-stable-19.11.2
     $ export DPDK_TARGET=x86_64-native-linuxapp-gcc
     $ export DPDK_BUILD=$DPDK_DIR/$DPDK_TARGET
     $ cd $DPDK_DIR
@@ -555,6 +555,11 @@ shown with::
 
 vhost-user Dequeue Zero Copy (experimental)
 -------------------------------------------
+
+.. warning::
+
+   vhost-user Dequeue Zero Copy is deprecated in OVS and will be removed in
+   the next release.
 
 Normally when dequeuing a packet from a vHost User device, a memcpy operation
 must be used to copy that packet from guest address space to host address

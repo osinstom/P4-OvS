@@ -14,6 +14,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+dnl Set OVS DPCLS Autovalidator as default subtable search at compile time?
+dnl This enables automatically running all unit tests with all DPCLS
+dnl implementations.
+AC_DEFUN([OVS_CHECK_DPCLS_AUTOVALIDATOR], [
+  AC_ARG_ENABLE([autovalidator],
+                [AC_HELP_STRING([--enable-autovalidator], [Enable DPCLS autovalidator as default subtable search implementation.])],
+                [autovalidator=yes],[autovalidator=no])
+  AC_MSG_CHECKING([whether DPCLS Autovalidator is default implementation])
+  if test "$autovalidator" != yes; then
+    AC_MSG_RESULT([no])
+  else
+    OVS_CFLAGS="$OVS_CFLAGS -DDPCLS_AUTOVALIDATOR_DEFAULT"
+    AC_MSG_RESULT([yes])
+  fi
+])
+
 dnl OVS_ENABLE_WERROR
 AC_DEFUN([OVS_ENABLE_WERROR],
   [AC_ARG_ENABLE(
@@ -250,6 +266,18 @@ AC_DEFUN([OVS_CHECK_LINUX_SCTP_CT], [
                [Define to 1 if SCTP_CONNTRACK_HEARTBEAT_SENT is available.])])
 ])
 
+dnl OVS_CHECK_LINUX_VIRTIO_TYPES
+dnl
+dnl Checks for kernels that need virtio_types definition.
+AC_DEFUN([OVS_CHECK_LINUX_VIRTIO_TYPES], [
+  AC_COMPILE_IFELSE([
+    AC_LANG_PROGRAM([#include <linux/virtio_types.h>], [
+        __virtio16 x =  0;
+    ])],
+    [AC_DEFINE([HAVE_VIRTIO_TYPES], [1],
+    [Define to 1 if __virtio16 is available.])])
+])
+
 dnl OVS_FIND_DEPENDENCY(FUNCTION, SEARCH_LIBS, NAME_TO_PRINT)
 dnl
 dnl Check for a function in a library list.
@@ -368,7 +396,6 @@ AC_DEFUN([OVS_CHECK_DPDK], [
     ], [], [[#include <rte_config.h>]])
 
     AC_CHECK_DECL([RTE_LIBRTE_MLX5_PMD], [dnl found
-      OVS_FIND_DEPENDENCY([mnl_attr_put], [mnl], [libmnl])
       AC_CHECK_DECL([RTE_IBVERBS_LINK_DLOPEN], [], [dnl not found
         OVS_FIND_DEPENDENCY([mlx5dv_create_wq], [mlx5], [libmlx5])
         OVS_FIND_DEPENDENCY([verbs_init_cq], [ibverbs], [libibverbs])
@@ -790,6 +817,10 @@ AC_DEFUN([OVS_CHECK_LINUX_COMPAT], [
                   [prandom_u32[[\(]]],
                   [OVS_DEFINE([HAVE_PRANDOM_U32])])
   OVS_GREP_IFELSE([$KSRC/include/linux/random.h], [prandom_u32_max])
+  OVS_GREP_IFELSE([$KSRC/include/linux/prandom.h],
+                  [prandom_u32[[\(]]],
+                  [OVS_DEFINE([HAVE_PRANDOM_U32])])
+  OVS_GREP_IFELSE([$KSRC/include/linux/prandom.h], [prandom_u32_max])
 
   OVS_GREP_IFELSE([$KSRC/include/net/rtnetlink.h], [get_link_net])
   OVS_GREP_IFELSE([$KSRC/include/net/rtnetlink.h], [name_assign_type])
@@ -1332,11 +1363,11 @@ AC_DEFUN([OVS_ENABLE_SPARSE],
 
 dnl OVS_CTAGS_IDENTIFIERS
 dnl
-dnl ctags ignores symbols with extras identifiers. This builds a list of
-dnl specially handled identifiers to be ignored.
+dnl ctags ignores symbols with extras identifiers. This is a list of
+dnl specially handled identifiers to be ignored. [ctags(1) -I <list>].
 AC_DEFUN([OVS_CTAGS_IDENTIFIERS],
     AC_SUBST([OVS_CTAGS_IDENTIFIERS_LIST],
-           [`printf %s '-I "'; sed -n 's/^#define \(OVS_[A-Z_]\+\)(\.\.\.)$/\1+/p' ${srcdir}/include/openvswitch/compiler.h  | tr \\\n ' ' ; printf '"'`] ))
+           ["OVS_LOCKABLE OVS_NO_THREAD_SAFETY_ANALYSIS OVS_REQ_RDLOCK+ OVS_ACQ_RDLOCK+ OVS_REQ_WRLOCK+ OVS_ACQ_WRLOCK+ OVS_REQUIRES+ OVS_ACQUIRES+ OVS_TRY_WRLOCK+ OVS_TRY_RDLOCK+ OVS_TRY_LOCK+ OVS_GUARDED_BY+ OVS_EXCLUDED+ OVS_RELEASES+ OVS_ACQ_BEFORE+ OVS_ACQ_AFTER+"]))
 
 dnl OVS_PTHREAD_SET_NAME
 dnl

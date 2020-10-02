@@ -264,6 +264,11 @@ struct dp_netdev_pmd_thread {
      * read by the pmd thread. */
     struct hmap tx_ports OVS_GUARDED;
 
+    struct ovs_mutex bond_mutex;    /* Protects updates of 'tx_bonds'. */
+    /* Map of 'tx_bond's used for transmission.  Written by the main thread
+     * and read by the pmd thread. */
+    struct cmap tx_bonds;
+
     /* These are thread-local copies of 'tx_ports'.  One contains only tunnel
      * ports (that support push_tunnel/pop_tunnel), the other contains ports
      * with at least one txq (that support send).  A port can be in both.
@@ -287,6 +292,9 @@ struct dp_netdev_pmd_thread {
 
     /* Set to true if the pmd thread needs to be reloaded. */
     bool need_reload;
+
+    /* Next time when PMD should try RCU quiescing. */
+    long long next_rcu_quiesce;
 };
 
 typedef void process_packet_cb(struct dp_netdev_pmd_thread *pmd,
@@ -306,6 +314,7 @@ typedef void process_packet_cb(struct dp_netdev_pmd_thread *pmd,
  *
  *    dp_netdev_mutex (global)
  *    port_mutex
+ *    bond_mutex
  *    non_pmd_mutex
  */
 struct dp_netdev {
@@ -374,6 +383,10 @@ struct dp_netdev {
     struct conntrack *conntrack;
     struct pmd_auto_lb pmd_alb;
 
+    /* Bonds. */
+    struct ovs_mutex bond_mutex; /* Protects updates of 'tx_bonds'. */
+    struct cmap tx_bonds; /* Contains 'struct tx_bond'. */
+
     process_packet_cb *process_cb;  /* Callback function for processing packets. */
 };
 
@@ -416,6 +429,20 @@ struct tx_port {
     long long flush_time;
     struct dp_packet_batch output_pkts;
     struct dp_netdev_rxq *output_pkts_rxqs[NETDEV_MAX_BURST];
+};
+
+/* Contained by struct tx_bond 'slave_buckets'. */
+struct slave_entry {
+    odp_port_t slave_id;
+    atomic_ullong n_packets;
+    atomic_ullong n_bytes;
+};
+
+/* Contained by struct dp_netdev_pmd_thread's 'tx_bonds'. */
+struct tx_bond {
+    struct cmap_node node;
+    uint32_t bond_id;
+    struct slave_entry slave_buckets[BOND_BUCKETS];
 };
 
 /* Enough headroom to add a vlan tag, plus an extra 2 bytes to allow IP

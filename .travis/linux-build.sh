@@ -244,13 +244,24 @@ function build_ovs()
     fi
 }
 
+if [ "$DEB_PACKAGE" ]; then
+    mk-build-deps --install --root-cmd sudo --remove debian/control
+    dpkg-checkbuilddeps
+    DEB_BUILD_OPTIONS='parallel=4 nocheck' fakeroot debian/rules binary
+    # Not trying to install ipsec package as there are issues with system-wide
+    # installed python3-openvswitch package and the pyenv used by Travis.
+    packages=$(ls $(pwd)/../*.deb | grep -v ipsec)
+    sudo apt install ${packages}
+    exit 0
+fi
+
 if [ "$KERNEL" ]; then
     install_kernel $KERNEL
 fi
 
 if [ "$DPDK" ] || [ "$DPDK_SHARED" ]; then
     if [ -z "$DPDK_VER" ]; then
-        DPDK_VER="19.11"
+        DPDK_VER="19.11.2"
     fi
     install_dpdk $DPDK_VER
     if [ "$CC" = "clang" ]; then
