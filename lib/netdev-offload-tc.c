@@ -366,7 +366,8 @@ netdev_tc_flow_flush(struct netdev *netdev)
 
 static int
 netdev_tc_flow_dump_create(struct netdev *netdev,
-                           struct netdev_flow_dump **dump_out)
+                           struct netdev_flow_dump **dump_out,
+                           bool terse)
 {
     enum tc_qdisc_hook hook = get_tc_qdisc_hook(netdev);
     struct netdev_flow_dump *dump;
@@ -386,9 +387,10 @@ netdev_tc_flow_dump_create(struct netdev *netdev,
     dump = xzalloc(sizeof *dump);
     dump->nl_dump = xzalloc(sizeof *dump->nl_dump);
     dump->netdev = netdev_ref(netdev);
+    dump->terse = terse;
 
     id = tc_make_tcf_id(ifindex, block_id, prio, hook);
-    tc_dump_flower_start(&id, dump->nl_dump);
+    tc_dump_flower_start(&id, dump->nl_dump, terse);
 
     *dump_out = dump;
 
@@ -502,13 +504,53 @@ flower_tun_opt_to_match(struct match *match, struct tc_flower *flower)
     match->wc.masks.tunnel.flags |= FLOW_TNL_F_UDPIF;
 }
 
+static void
+parse_tc_flower_to_stats(struct tc_flower *flower,
+                         struct dpif_flow_stats *stats)
+{
+    if (!stats) {
+        return;
+    }
+
+    memset(stats, 0, sizeof *stats);
+    stats->n_packets = get_32aligned_u64(&flower->stats.n_packets);
+    stats->n_bytes = get_32aligned_u64(&flower->stats.n_bytes);
+    stats->used = flower->lastused;
+}
+
+static void
+parse_tc_flower_to_attrs(struct tc_flower *flower,
+                         struct dpif_flow_attrs *attrs)
+{
+    attrs->offloaded = (flower->offloaded_state == TC_OFFLOADED_STATE_IN_HW ||
+                        flower->offloaded_state ==
+                        TC_OFFLOADED_STATE_UNDEFINED);
+    attrs->dp_layer = "tc";
+    attrs->dp_extra_info = NULL;
+}
+
+static int
+parse_tc_flower_terse_to_match(struct tc_flower *flower,
+                               struct match *match,
+                               struct dpif_flow_stats *stats,
+                               struct dpif_flow_attrs *attrs)
+{
+    match_init_catchall(match);
+
+    parse_tc_flower_to_stats(flower, stats);
+    parse_tc_flower_to_attrs(flower, attrs);
+
+    return 0;
+}
+
 static int
 parse_tc_flower_to_match(struct tc_flower *flower,
                          struct match *match,
                          struct nlattr **actions,
                          struct dpif_flow_stats *stats,
                          struct dpif_flow_attrs *attrs,
-                         struct ofpbuf *buf)
+                         struct ofpbuf *buf,
+                         bool terse)
 {
     size_t act_off;
     struct tc_flower_key *key = &flower->key;
@@ -516,6 +558,10 @@ parse_tc_flower_to_match(struct tc_flower *flower,
     odp_port_t outport = 0;
     struct tc_action *action;
     int i;
+
+    if (terse) {
+        return parse_tc_flower_terse_to_match(flower, match, stats, attrs);
+    }
 
     ofpbuf_clear(buf);
 
@@ -543,6 +589,14 @@ parse_tc_flower_to_match(struct tc_flower *flower,
         match->flow.mpls_lse[0] = key->mpls_lse & mask->mpls_lse;
         match->wc.masks.mpls_lse[0] = mask->mpls_lse;
         match_set_dl_type(match, key->encap_eth_type[0]);
+    } else if (key->eth_type == htons(ETH_TYPE_ARP)) {
+        match_set_arp_sha_masked(match, key->arp.sha, mask->arp.sha);
+        match_set_arp_tha_masked(match, key->arp.tha, mask->arp.tha);
+        match_set_arp_spa_masked(match, key->arp.spa, mask->arp.spa);
+        match_set_arp_tpa_masked(match, key->arp.tpa, mask->arp.tpa);
+        match_set_arp_opcode_masked(match, key->arp.opcode,
+                                    mask->arp.opcode);
+        match_set_dl_type(match, key->eth_type);
     } else {
         match_set_dl_type(match, key->eth_type);
     }
@@ -633,13 +687,22 @@ parse_tc_flower_to_match(struct tc_flower *flower,
             match_set_tun_id(match, flower->key.tunnel.id);
             match->flow.tunnel.flags |= FLOW_TNL_F_KEY;
         }
-        if (flower->key.tunnel.ipv4.ipv4_dst) {
-            match_set_tun_src(match, flower->key.tunnel.ipv4.ipv4_src);
-            match_set_tun_dst(match, flower->key.tunnel.ipv4.ipv4_dst);
-        } else if (!is_all_zeros(&flower->key.tunnel.ipv6.ipv6_dst,
-                   sizeof flower->key.tunnel.ipv6.ipv6_dst)) {
-            match_set_tun_ipv6_src(match, &flower->key.tunnel.ipv6.ipv6_src);
-            match_set_tun_ipv6_dst(match, &flower->key.tunnel.ipv6.ipv6_dst);
+        if (flower->mask.tunnel.ipv4.ipv4_dst ||
+            flower->mask.tunnel.ipv4.ipv4_src) {
+            match_set_tun_dst_masked(match,
+                                     flower->key.tunnel.ipv4.ipv4_dst,
+                                     flower->mask.tunnel.ipv4.ipv4_dst);
+            match_set_tun_src_masked(match,
+                                     flower->key.tunnel.ipv4.ipv4_src,
+                                     flower->mask.tunnel.ipv4.ipv4_src);
+        } else if (ipv6_addr_is_set(&flower->mask.tunnel.ipv6.ipv6_dst) ||
+                   ipv6_addr_is_set(&flower->mask.tunnel.ipv6.ipv6_src)) {
+            match_set_tun_ipv6_dst_masked(match,
+                                          &flower->key.tunnel.ipv6.ipv6_dst,
+                                          &flower->mask.tunnel.ipv6.ipv6_dst);
+            match_set_tun_ipv6_src_masked(match,
+                                          &flower->key.tunnel.ipv6.ipv6_src,
+                                          &flower->mask.tunnel.ipv6.ipv6_src);
         }
         if (flower->key.tunnel.tos) {
             match_set_tun_tos_masked(match, flower->key.tunnel.tos,
@@ -734,13 +797,11 @@ parse_tc_flower_to_match(struct tc_flower *flower,
                     nl_msg_put_be32(buf, OVS_TUNNEL_KEY_ATTR_IPV4_DST,
                                     action->encap.ipv4.ipv4_dst);
                 }
-                if (!is_all_zeros(&action->encap.ipv6.ipv6_src,
-                                  sizeof action->encap.ipv6.ipv6_src)) {
+                if (ipv6_addr_is_set(&action->encap.ipv6.ipv6_src)) {
                     nl_msg_put_in6_addr(buf, OVS_TUNNEL_KEY_ATTR_IPV6_SRC,
                                         &action->encap.ipv6.ipv6_src);
                 }
-                if (!is_all_zeros(&action->encap.ipv6.ipv6_dst,
-                                  sizeof action->encap.ipv6.ipv6_dst)) {
+                if (ipv6_addr_is_set(&action->encap.ipv6.ipv6_dst)) {
                     nl_msg_put_in6_addr(buf, OVS_TUNNEL_KEY_ATTR_IPV6_DST,
                                         &action->encap.ipv6.ipv6_dst);
                 }
@@ -863,17 +924,8 @@ parse_tc_flower_to_match(struct tc_flower *flower,
 
     *actions = ofpbuf_at_assert(buf, act_off, sizeof(struct nlattr));
 
-    if (stats) {
-        memset(stats, 0, sizeof *stats);
-        stats->n_packets = get_32aligned_u64(&flower->stats.n_packets);
-        stats->n_bytes = get_32aligned_u64(&flower->stats.n_bytes);
-        stats->used = flower->lastused;
-    }
-
-    attrs->offloaded = (flower->offloaded_state == TC_OFFLOADED_STATE_IN_HW)
-                       || (flower->offloaded_state == TC_OFFLOADED_STATE_UNDEFINED);
-    attrs->dp_layer = "tc";
-    attrs->dp_extra_info = NULL;
+    parse_tc_flower_to_stats(flower, stats);
+    parse_tc_flower_to_attrs(flower, attrs);
 
     return 0;
 }
@@ -900,12 +952,12 @@ netdev_tc_flow_dump_next(struct netdev_flow_dump *dump,
     while (nl_dump_next(dump->nl_dump, &nl_flow, rbuffer)) {
         struct tc_flower flower;
 
-        if (parse_netlink_to_tc_flower(&nl_flow, &id, &flower)) {
+        if (parse_netlink_to_tc_flower(&nl_flow, &id, &flower, dump->terse)) {
             continue;
         }
 
         if (parse_tc_flower_to_match(&flower, match, actions, stats, attrs,
-                                     wbuffer)) {
+                                     wbuffer, dump->terse)) {
             continue;
         }
 
@@ -1388,7 +1440,8 @@ netdev_tc_flow_put(struct netdev *netdev, struct match *match,
     chain = key->recirc_id;
     mask->recirc_id = 0;
 
-    if (flow_tnl_dst_is_set(&key->tunnel)) {
+    if (flow_tnl_dst_is_set(&key->tunnel) ||
+        flow_tnl_src_is_set(&key->tunnel)) {
         VLOG_DBG_RL(&rl,
                     "tunnel: id %#" PRIx64 " src " IP_FMT
                     " dst " IP_FMT " tp_src %d tp_dst %d",
@@ -1404,6 +1457,10 @@ netdev_tc_flow_put(struct netdev *netdev, struct match *match,
         flower.key.tunnel.ttl = tnl->ip_ttl;
         flower.key.tunnel.tp_src = tnl->tp_src;
         flower.key.tunnel.tp_dst = tnl->tp_dst;
+        flower.mask.tunnel.ipv4.ipv4_src = tnl_mask->ip_src;
+        flower.mask.tunnel.ipv4.ipv4_dst = tnl_mask->ip_dst;
+        flower.mask.tunnel.ipv6.ipv6_src = tnl_mask->ipv6_src;
+        flower.mask.tunnel.ipv6.ipv6_dst = tnl_mask->ipv6_dst;
         flower.mask.tunnel.tos = tnl_mask->ip_tos;
         flower.mask.tunnel.ttl = tnl_mask->ip_ttl;
         flower.mask.tunnel.id = (tnl->flags & FLOW_TNL_F_KEY) ? tnl_mask->tun_id : 0;
@@ -1499,6 +1556,25 @@ netdev_tc_flow_put(struct netdev *netdev, struct match *match,
     memset(&mask->dl_src, 0, sizeof mask->dl_src);
     mask->dl_type = 0;
     mask->in_port.odp_port = 0;
+
+    if (key->dl_type == htons(ETH_P_ARP)) {
+            flower.key.arp.spa = key->nw_src;
+            flower.key.arp.tpa = key->nw_dst;
+            flower.key.arp.sha = key->arp_sha;
+            flower.key.arp.tha = key->arp_tha;
+            flower.key.arp.opcode = key->nw_proto;
+            flower.mask.arp.spa = mask->nw_src;
+            flower.mask.arp.tpa = mask->nw_dst;
+            flower.mask.arp.sha = mask->arp_sha;
+            flower.mask.arp.tha = mask->arp_tha;
+            flower.mask.arp.opcode = mask->nw_proto;
+
+            mask->nw_src = 0;
+            mask->nw_dst = 0;
+            mask->nw_proto = 0;
+            memset(&mask->arp_sha, 0, sizeof mask->arp_sha);
+            memset(&mask->arp_tha, 0, sizeof mask->arp_tha);
+    }
 
     if (is_ip_any(key)) {
         flower.key.ip_proto = key->nw_proto;
@@ -1638,7 +1714,8 @@ netdev_tc_flow_put(struct netdev *netdev, struct match *match,
         action = &flower.actions[flower.action_count];
         if (nl_attr_type(nla) == OVS_ACTION_ATTR_OUTPUT) {
             odp_port_t port = nl_attr_get_odp_port(nla);
-            struct netdev *outdev = netdev_ports_get(port, info->dpif_class);
+            struct netdev *outdev = netdev_ports_get(
+                                        port, netdev_get_dpif_type(netdev));
 
             if (!outdev) {
                 VLOG_DBG_RL(&rl, "Can't find netdev for output port %d", port);
@@ -1712,6 +1789,10 @@ netdev_tc_flow_put(struct netdev *netdev, struct match *match,
             action->chain = nl_attr_get_u32(nla);
             flower.action_count++;
             recirc_act = true;
+        } else if (nl_attr_type(nla) == OVS_ACTION_ATTR_DROP) {
+            action->type = TC_ACT_GOTO;
+            action->chain = 0;  /* 0 is reserved and not used by recirc. */
+            flower.action_count++;
         } else {
             VLOG_DBG_RL(&rl, "unsupported put action type: %d",
                         nl_attr_type(nla));
@@ -1784,7 +1865,7 @@ netdev_tc_flow_get(struct netdev *netdev,
     }
 
     in_port = netdev_ifindex_to_odp_port(id.ifindex);
-    parse_tc_flower_to_match(&flower, match, actions, stats, attrs, buf);
+    parse_tc_flower_to_match(&flower, match, actions, stats, attrs, buf, false);
 
     match->wc.masks.in_port.odp_port = u32_to_odp(UINT32_MAX);
     match->flow.in_port.odp_port = in_port;
@@ -1837,6 +1918,7 @@ probe_multi_mask_per_prio(int ifindex)
 
     memset(&flower, 0, sizeof flower);
 
+    flower.tc_policy = TC_POLICY_SKIP_HW;
     flower.key.eth_type = htons(ETH_P_IP);
     flower.mask.eth_type = OVS_BE16_MAX;
     memset(&flower.key.dst_mac, 0x11, sizeof flower.key.dst_mac);
@@ -1884,6 +1966,7 @@ probe_tc_block_support(int ifindex)
 
     memset(&flower, 0, sizeof flower);
 
+    flower.tc_policy = TC_POLICY_SKIP_HW;
     flower.key.eth_type = htons(ETH_P_IP);
     flower.mask.eth_type = OVS_BE16_MAX;
     memset(&flower.key.dst_mac, 0x11, sizeof flower.key.dst_mac);

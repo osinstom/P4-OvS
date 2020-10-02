@@ -12,6 +12,7 @@ lib_libopenvswitch_la_LIBADD += $(CAPNG_LDADD)
 lib_libopenvswitch_la_LIBADD += $(LIBBPF_LDADD)
 lib_libopenvswitch_la_LIBADD += -lpip4info
 
+
 if WIN32
 lib_libopenvswitch_la_LIBADD += ${PTHREAD_LIBS}
 endif
@@ -21,6 +22,29 @@ lib_libopenvswitch_la_LDFLAGS = \
         -Wl,--version-script=$(top_builddir)/lib/libopenvswitch.sym \
         $(AM_LDFLAGS)
 
+if HAVE_AVX512F
+if HAVE_LD_AVX512_GOOD
+# Build library of avx512 code with CPU ISA CFLAGS enabled. This allows the
+# compiler to use the ISA features required for the ISA optimized code-paths.
+# Use LDFLAGS to compile only static library of this code, as it should be
+# statically linked into vswitchd even if vswitchd is a shared build.
+lib_LTLIBRARIES += lib/libopenvswitchavx512.la
+lib_libopenvswitch_la_LIBADD += lib/libopenvswitchavx512.la
+lib_libopenvswitchavx512_la_CFLAGS = \
+	-mavx512f \
+	-mavx512bw \
+	-mavx512dq \
+	-mbmi2 \
+	-fPIC \
+	$(AM_CFLAGS)
+lib_libopenvswitchavx512_la_SOURCES = \
+	lib/dpif-netdev-lookup-avx512-gather.c
+lib_libopenvswitchavx512_la_LDFLAGS = \
+	-static
+endif
+endif
+
+# Build core vswitch libraries as before
 lib_libopenvswitch_la_SOURCES = \
 	lib/aes128.c \
 	lib/aes128.h \
@@ -103,6 +127,9 @@ lib_libopenvswitch_la_SOURCES = \
 	lib/dp-packet.h \
 	lib/dp-packet.c \
 	lib/dpdk.h \
+	lib/dpif-netdev-lookup.h \
+	lib/dpif-netdev-lookup.c \
+	lib/dpif-netdev-lookup-autovalidator.c \
 	lib/dpif-netdev-lookup-generic.c \
 	lib/dpif-netdev.c \
 	lib/dpif-netdev.h \
@@ -543,6 +570,7 @@ MAN_FRAGMENTS += \
 	lib/daemon-syn.man \
 	lib/db-ctl-base.man \
 	lib/dpctl.man \
+	lib/dpdk-unixctl.man \
 	lib/memory-unixctl.man \
 	lib/netdev-dpdk-unixctl.man \
 	lib/dpif-netdev-unixctl.man \

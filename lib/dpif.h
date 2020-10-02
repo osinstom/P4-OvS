@@ -904,6 +904,18 @@ struct dpif_prog {
     size_t data_len;
 };
 
+/* Bonding. */
+
+/* Bit-mask for hashing a flow down to a bucket. */
+#define BOND_MASK 0xff
+#define BOND_BUCKETS (BOND_MASK + 1)
+
+int dpif_bond_add(struct dpif *, uint32_t bond_id, odp_port_t *slave_map);
+int dpif_bond_del(struct dpif *, uint32_t bond_id);
+int dpif_bond_stats_get(struct dpif *, uint32_t bond_id, uint64_t *n_bytes);
+bool dpif_supports_lb_output_action(const struct dpif *);
+
+
 /* Miscellaneous. */
 
 void dpif_get_netflow_ids(const struct dpif *,

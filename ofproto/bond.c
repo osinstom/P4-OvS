@@ -54,10 +54,6 @@ static struct ovs_rwlock rwlock = OVS_RWLOCK_INITIALIZER;
 static struct hmap all_bonds__ = HMAP_INITIALIZER(&all_bonds__);
 static struct hmap *const all_bonds OVS_GUARDED_BY(rwlock) = &all_bonds__;
 
-/* Bit-mask for hashing a flow down to a bucket. */
-#define BOND_MASK 0xff
-#define BOND_BUCKETS (BOND_MASK + 1)
-
 /* Priority for internal rules created to handle recirculation */
 #define RECIRC_RULE_PRIORITY 20
 
@@ -93,6 +89,7 @@ struct bond_slave {
     /* Link status. */
     bool enabled;               /* May be chosen for flows? */
     bool may_enable;            /* Client considers this slave bondable. */
+    bool is_primary;            /* This slave is preferred over others. */
     long long delay_expires;    /* Time after which 'enabled' may change. */
 
     /* Rebalancing info.  Used only by bond_rebalance(). */
@@ -126,6 +123,9 @@ struct bond {
     enum lacp_status lacp_status; /* Status of LACP negotiations. */
     bool bond_revalidate;       /* True if flows need revalidation. */
     uint32_t basis;             /* Basis for flow hash function. */
+    bool use_lb_output_action;  /* Use lb_output action to avoid recirculation.
+                                   Applicable only for Balance TCP mode. */
+    char *primary;              /* Name of the primary slave interface. */
 
     /* SLB specific bonding info. */
     struct bond_entry *hash;     /* An array of BOND_BUCKETS elements. */
@@ -185,8 +185,10 @@ static struct bond_slave *choose_output_slave(const struct bond *,
                                               struct flow_wildcards *,
                                               uint16_t vlan)
     OVS_REQ_RDLOCK(rwlock);
-static void update_recirc_rules__(struct bond *bond);
+static void update_recirc_rules__(struct bond *);
 static bool bond_is_falling_back_to_ab(const struct bond *);
+static void bond_add_lb_output_buckets(const struct bond *);
+static void bond_del_lb_output_buckets(const struct bond *);
 
 /* Attempts to parse 's' as the name of a bond balancing mode.  If successful,
  * stores the mode in '*balance' and returns true.  Otherwise returns false
@@ -241,6 +243,7 @@ bond_create(const struct bond_settings *s, struct ofproto_dpif *ofproto)
 
     bond->active_slave_mac = eth_addr_zero;
     bond->active_slave_changed = false;
+    bond->primary = NULL;
 
     bond_reconfigure(bond, s);
     return bond;
@@ -282,6 +285,10 @@ bond_unref(struct bond *bond)
 
     /* Free bond resources. Remove existing post recirc rules. */
     if (bond->recirc_id) {
+        if (bond_use_lb_output_action(bond)) {
+            /* Delete bond buckets from datapath if installed. */
+            bond_del_lb_output_buckets(bond);
+        }
         recirc_free_id(bond->recirc_id);
         bond->recirc_id = 0;
     }
@@ -290,6 +297,7 @@ bond_unref(struct bond *bond)
     update_recirc_rules__(bond);
 
     hmap_destroy(&bond->pr_rule_ops);
+    free(bond->primary);
     free(bond->name);
     free(bond);
 }
@@ -336,26 +344,34 @@ update_recirc_rules__(struct bond *bond)
     struct ofpbuf ofpacts;
     int i;
 
-    ofpbuf_use_stub(&ofpacts, ofpacts_stub, sizeof ofpacts_stub);
-
     HMAP_FOR_EACH(pr_op, hmap_node, &bond->pr_rule_ops) {
         pr_op->op = DEL;
     }
 
     if (bond->hash && bond->recirc_id) {
-        for (i = 0; i < BOND_BUCKETS; i++) {
-            struct bond_slave *slave = bond->hash[i].slave;
+        if (bond_use_lb_output_action(bond)) {
+            bond_add_lb_output_buckets(bond);
+            /* No need to install post recirculation rules as we are using
+             * lb_output action with bond buckets.
+             */
+            return;
+        } else {
+            for (i = 0; i < BOND_BUCKETS; i++) {
+                struct bond_slave *slave = bond->hash[i].slave;
 
-            if (slave) {
-                match_init_catchall(&match);
-                match_set_recirc_id(&match, bond->recirc_id);
-                match_set_dp_hash_masked(&match, i, BOND_MASK);
+                if (slave) {
+                    match_init_catchall(&match);
+                    match_set_recirc_id(&match, bond->recirc_id);
+                    match_set_dp_hash_masked(&match, i, BOND_MASK);
 
-                add_pr_rule(bond, &match, slave->ofp_port,
-                            &bond->hash[i].pr_rule);
+                    add_pr_rule(bond, &match, slave->ofp_port,
+                                &bond->hash[i].pr_rule);
+                }
             }
         }
     }
+
+    ofpbuf_use_stub(&ofpacts, ofpacts_stub, sizeof ofpacts_stub);
 
     HMAP_FOR_EACH_SAFE(pr_op, next_op, hmap_node, &bond->pr_rule_ops) {
         int error;
@@ -459,13 +475,36 @@ bond_reconfigure(struct bond *bond, const struct bond_settings *s)
         bond->bond_revalidate = false;
     }
 
+    if (!nullable_string_is_equal(bond->primary, s->primary)) {
+        free(bond->primary);
+        bond->primary = nullable_xstrdup(s->primary);
+        revalidate = true;
+    }
+
     if (bond->balance != BM_AB) {
         if (!bond->recirc_id) {
             bond->recirc_id = recirc_alloc_id(bond->ofproto);
         }
     } else if (bond->recirc_id) {
+        if (bond_use_lb_output_action(bond)) {
+            /* Delete bond buckets from datapath if installed. */
+            bond_del_lb_output_buckets(bond);
+        }
         recirc_free_id(bond->recirc_id);
         bond->recirc_id = 0;
+    }
+    if (bond->use_lb_output_action != s->use_lb_output_action) {
+        if (s->use_lb_output_action &&
+            !ovs_lb_output_action_supported(bond->ofproto)) {
+            VLOG_WARN("%s: Datapath does not support 'lb_output' action, "
+                      "disabled.", bond->name);
+        } else {
+            bond->use_lb_output_action = s->use_lb_output_action;
+            if (!bond->use_lb_output_action) {
+                bond_del_lb_output_buckets(bond);
+            }
+            revalidate = true;
+        }
     }
 
     if (bond->balance == BM_AB || !bond->hash || revalidate) {
@@ -557,6 +596,11 @@ bond_slave_register(struct bond *bond, void *slave_,
 
     free(slave->name);
     slave->name = xstrdup(netdev_get_name(netdev));
+    if (bond->primary && !strcmp(bond->primary, slave->name)) {
+        slave->is_primary = true;
+    } else {
+        slave->is_primary = false;
+    }
     ovs_rwlock_unlock(&rwlock);
 }
 
@@ -642,7 +686,7 @@ bond_slave_set_may_enable(struct bond *bond, void *slave_, bool may_enable)
 bool
 bond_run(struct bond *bond, enum lacp_status lacp_status)
 {
-    struct bond_slave *slave;
+    struct bond_slave *slave, *primary;
     bool revalidate;
 
     ovs_rwlock_wrlock(&rwlock);
@@ -659,11 +703,19 @@ bond_run(struct bond *bond, enum lacp_status lacp_status)
     }
 
     /* Enable slaves based on link status and LACP feedback. */
+    primary = NULL;
     HMAP_FOR_EACH (slave, hmap_node, &bond->slaves) {
         bond_link_status_update(slave);
         slave->change_seq = seq_read(connectivity_seq_get());
+
+        /* Discover if there is an active slave marked 'primary'. */
+        if (bond->balance == BM_AB && slave->is_primary && slave->enabled) {
+            primary = slave;
+        }
     }
-    if (!bond->active_slave || !bond->active_slave->enabled) {
+
+    if (!bond->active_slave || !bond->active_slave->enabled ||
+        (primary && bond->active_slave != primary)) {
         bond_choose_active_slave(bond);
     }
 
@@ -944,19 +996,31 @@ bond_recirculation_account(struct bond *bond)
     OVS_REQ_WRLOCK(rwlock)
 {
     int i;
+    uint64_t n_bytes[BOND_BUCKETS];
+    bool use_lb_output_action = bond_use_lb_output_action(bond);
+
+    if (use_lb_output_action) {
+        /* Retrieve bond stats from datapath. */
+        dpif_bond_stats_get(bond->ofproto->backer->dpif,
+                            bond->recirc_id, n_bytes);
+    }
 
     for (i=0; i<=BOND_MASK; i++) {
         struct bond_entry *entry = &bond->hash[i];
         struct rule *rule = entry->pr_rule;
+        struct pkt_stats stats;
 
-        if (rule) {
-            struct pkt_stats stats;
+        if (use_lb_output_action) {
+            stats.n_bytes = n_bytes[i];
+        } else if (rule) {
             long long int used OVS_UNUSED;
 
             rule->ofproto->ofproto_class->rule_get_stats(
                 rule, &stats, &used);
-            bond_entry_account(entry, stats.n_bytes);
+        } else {
+            continue;
         }
+        bond_entry_account(entry, stats.n_bytes);
     }
 }
 
@@ -1351,6 +1415,7 @@ bond_print_details(struct ds *ds, const struct bond *bond)
     struct shash slave_shash = SHASH_INITIALIZER(&slave_shash);
     const struct shash_node **sorted_slaves = NULL;
     const struct bond_slave *slave;
+    bool use_lb_output_action;
     bool may_recirc;
     uint32_t recirc_id;
     int i;
@@ -1365,6 +1430,11 @@ bond_print_details(struct ds *ds, const struct bond *bond)
                   may_recirc ? "yes" : "no", may_recirc ? recirc_id: -1);
 
     ds_put_format(ds, "bond-hash-basis: %"PRIu32"\n", bond->basis);
+
+    use_lb_output_action = bond_use_lb_output_action(bond);
+    ds_put_format(ds, "lb_output action: %s, bond-id: %d\n",
+                  use_lb_output_action ? "enabled" : "disabled",
+                  use_lb_output_action ? recirc_id : -1);
 
     ds_put_format(ds, "updelay: %d ms\n", bond->updelay);
     ds_put_format(ds, "downdelay: %d ms\n", bond->downdelay);
@@ -1393,16 +1463,25 @@ bond_print_details(struct ds *ds, const struct bond *bond)
     ds_put_format(ds, "lacp_fallback_ab: %s\n",
                   bond->lacp_fallback_ab ? "true" : "false");
 
-    ds_put_cstr(ds, "active slave mac: ");
-    ds_put_format(ds, ETH_ADDR_FMT, ETH_ADDR_ARGS(bond->active_slave_mac));
-    slave = bond_find_slave_by_mac(bond, bond->active_slave_mac);
-    ds_put_format(ds,"(%s)\n", slave ? slave->name : "none");
-
+    bool found_primary = false;
     HMAP_FOR_EACH (slave, hmap_node, &bond->slaves) {
+        if (slave->is_primary) {
+            found_primary = true;
+        }
         shash_add(&slave_shash, slave->name, slave);
     }
-    sorted_slaves = shash_sort(&slave_shash);
 
+    ds_put_format(ds, "active-backup primary: %s%s\n",
+                  bond->primary ? bond->primary : "<none>",
+                  (!found_primary && bond->primary)
+                  ? " (no such slave)" : "");
+
+    slave = bond_find_slave_by_mac(bond, bond->active_slave_mac);
+    ds_put_cstr(ds, "active slave mac: ");
+    ds_put_format(ds, ETH_ADDR_FMT, ETH_ADDR_ARGS(bond->active_slave_mac));
+    ds_put_format(ds,"(%s)\n", slave ? slave->name : "none");
+
+    sorted_slaves = shash_sort(&slave_shash);
     for (i = 0; i < shash_count(&slave_shash); i++) {
         struct bond_entry *be;
 
@@ -1862,6 +1941,13 @@ bond_choose_slave(const struct bond *bond)
 {
     struct bond_slave *slave, *best;
 
+    /* If there's a primary and it's active, return that. */
+    HMAP_FOR_EACH (slave, hmap_node, &bond->slaves) {
+        if (slave->is_primary && slave->enabled) {
+            return slave;
+        }
+    }
+
     /* Find the last active slave. */
     slave = bond_find_slave_by_mac(bond, bond->active_slave_mac);
     if (slave && slave->enabled) {
@@ -1941,4 +2027,35 @@ bond_get_changed_active_slave(const char *name, struct eth_addr *mac,
     ovs_rwlock_unlock(&rwlock);
 
     return false;
+}
+
+bool
+bond_use_lb_output_action(const struct bond *bond)
+{
+    return bond_may_recirc(bond) && bond->use_lb_output_action;
+}
+
+static void
+bond_add_lb_output_buckets(const struct bond *bond)
+{
+    ofp_port_t slave_map[BOND_BUCKETS];
+
+    for (int i = 0; i < BOND_BUCKETS; i++) {
+        struct bond_slave *slave = bond->hash[i].slave;
+
+        if (slave) {
+            slave_map[i] = slave->ofp_port;
+        } else {
+            slave_map[i] = OFPP_NONE;
+        }
+    }
+    ofproto_dpif_add_lb_output_buckets(bond->ofproto, bond->recirc_id,
+                                           slave_map);
+}
+
+static void
+bond_del_lb_output_buckets(const struct bond *bond)
+{
+    ofproto_dpif_delete_lb_output_buckets(bond->ofproto,
+                                          bond->recirc_id);
 }

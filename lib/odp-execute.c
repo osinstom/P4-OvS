@@ -761,10 +761,11 @@ odp_execute_check_pkt_len(void *dp, struct dp_packet *packet, bool steal,
 
     const struct nlattr *a;
     struct dp_packet_batch pb;
+    uint32_t size = dp_packet_get_send_len(packet)
+                    - dp_packet_l2_pad_size(packet);
 
     a = attrs[OVS_CHECK_PKT_LEN_ATTR_PKT_LEN];
-    bool is_greater = dp_packet_size(packet) > nl_attr_get_u16(a);
-    if (is_greater) {
+    if (size > nl_attr_get_u16(a)) {
         a = attrs[OVS_CHECK_PKT_LEN_ATTR_ACTIONS_IF_GREATER];
     } else {
         a = attrs[OVS_CHECK_PKT_LEN_ATTR_ACTIONS_IF_LESS_EQUAL];
@@ -793,6 +794,7 @@ requires_datapath_assistance(const struct nlattr *a)
     switch (type) {
         /* These only make sense in the context of a datapath. */
     case OVS_ACTION_ATTR_OUTPUT:
+    case OVS_ACTION_ATTR_LB_OUTPUT:
     case OVS_ACTION_ATTR_TUNNEL_PUSH:
     case OVS_ACTION_ATTR_TUNNEL_POP:
     case OVS_ACTION_ATTR_USERSPACE:
@@ -1068,6 +1070,7 @@ odp_execute_actions(void *dp, struct dp_packet_batch *batch, bool steal,
             return;
         }
         case OVS_ACTION_ATTR_OUTPUT:
+        case OVS_ACTION_ATTR_LB_OUTPUT:
         case OVS_ACTION_ATTR_TUNNEL_PUSH:
         case OVS_ACTION_ATTR_TUNNEL_POP:
         case OVS_ACTION_ATTR_USERSPACE:

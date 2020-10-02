@@ -12,25 +12,6 @@ ovsdb_start_idltest () {
     on_exit 'kill `cat ovsdb-server.pid`'
 }
 
-# ovsdb_cluster_start_idltest [REMOTE] [SCHEMA]
-#
-# Creates a database using SCHEMA (default: idltest.ovsschema) and
-# starts a database cluster listening on punix:socket and REMOTE (if
-# specified).
-ovsdb_cluster_start_idltest () {
-   local n=$1
-   ovsdb-tool create-cluster s1.db $abs_srcdir/idltest.ovsschema unix:s1.raft || return $?
-   cid=`ovsdb-tool db-cid s1.db`
-   schema_name=`ovsdb-tool schema-name $abs_srcdir/idltest.ovsschema`
-   for i in `seq 2 $n`; do
-     ovsdb-tool join-cluster s$i.db $schema_name unix:s$i.raft unix:s1.raft || return $?
-   done
-   for i in `seq $n`; do
-     ovsdb-server -vraft -vconsole:warn --detach --no-chdir --log-file=s$i.log --pidfile=s$i.pid --unixctl=s$i --remote=punix:s$i.ovsdb ${2:+--remote=$2} s$i.db || return $?
-   done
-   on_exit 'kill `cat s*.pid`'
-}
-
 # ovsdb_cluster_leader [REMOTES] [DATABASE]
 #
 # Returns the leader of the DATABASE cluster.
@@ -47,6 +28,35 @@ ovsdb_cluster_leader () {
       fi
    done
 }])
+
+# OVSDB_CLUSTER_START_IDLTEST([N], [REMOTE])
+#
+# Creates a clustered database using idltest.ovsschema and starts a database
+# cluster of N servers listening on punix:socket and REMOTE (if specified).
+m4_define([OVSDB_CLUSTER_START_IDLTEST],
+  [n=$1
+   AT_CHECK([ovsdb-tool create-cluster s1.db \
+                        $abs_srcdir/idltest.ovsschema unix:s1.raft])
+   cid=$(ovsdb-tool db-cid s1.db)
+   schema_name=$(ovsdb-tool schema-name $abs_srcdir/idltest.ovsschema)
+   for i in $(seq 2 $n); do
+     AT_CHECK([ovsdb-tool join-cluster s$i.db \
+                          $schema_name unix:s$i.raft unix:s1.raft])
+   done
+   for i in $(seq $n); do
+     AT_CHECK([ovsdb-server -vraft -vconsole:warn --detach --no-chdir \
+                   --log-file=s$i.log --pidfile=s$i.pid --unixctl=s$i \
+                   --remote=punix:s$i.ovsdb                           \
+                   m4_if([$2], [], [], [--remote=$2]) s$i.db])
+   done
+   on_exit 'kill $(cat s*.pid)'
+
+   for i in $(seq $n); do
+       OVS_WAIT_UNTIL([ovs-appctl -t $(pwd)/s$i cluster/status ${schema_name} \
+                                           | grep -q 'Status: cluster member'])
+   done
+])
+
 
 # OVSDB_CHECK_IDL_C(TITLE, [PRE-IDL-TXN], TRANSACTIONS, OUTPUT, [KEYWORDS],
 #                   [FILTER])
@@ -954,6 +964,7 @@ AT_CHECK([sort stdout | uuidfilt], [0],
 
 # Check that ovsdb-idl figured out that table link2 and column l2 are missing.
 AT_CHECK([grep ovsdb_idl stderr | sort], [0], [dnl
+test-ovsdb|ovsdb_idl|idltest database lacks indexed table (database needs upgrade?)
 test-ovsdb|ovsdb_idl|idltest database lacks link2 table (database needs upgrade?)
 test-ovsdb|ovsdb_idl|idltest database lacks simple5 table (database needs upgrade?)
 test-ovsdb|ovsdb_idl|idltest database lacks singleton table (database needs upgrade?)
@@ -1812,7 +1823,7 @@ m4_define([OVSDB_CHECK_IDL_LEADER_ONLY_PY],
    AT_SKIP_IF([test "$IS_ARM64" = "yes"])
    AT_KEYWORDS([ovsdb server idl Python leader_only with tcp socket])
    m4_define([LPBK],[127.0.0.1])
-   AT_CHECK([ovsdb_cluster_start_idltest $2 "ptcp:0:"LPBK])
+   OVSDB_CLUSTER_START_IDLTEST([$2], ["ptcp:0:"LPBK])
    PARSE_LISTENING_PORT([s2.log], [TCP_PORT_1])
    PARSE_LISTENING_PORT([s3.log], [TCP_PORT_2])
    PARSE_LISTENING_PORT([s1.log], [TCP_PORT_3])
@@ -1828,3 +1839,59 @@ m4_define([OVSDB_CHECK_IDL_LEADER_ONLY_PY],
 
 OVSDB_CHECK_IDL_LEADER_ONLY_PY([Check Python IDL connects to leader], 3, ['remote'])
 OVSDB_CHECK_IDL_LEADER_ONLY_PY([Check Python IDL reconnects to leader], 3, ['remote' '+remotestop' 'remote'])
+
+# same as OVSDB_CHECK_IDL but uses C IDL implementation with tcp
+# with multiple remotes.
+m4_define([OVSDB_CHECK_CLUSTER_IDL_C],
+  [AT_SETUP([$1 - C - tcp])
+   AT_KEYWORDS([ovsdb server idl positive tcp socket $5])
+   m4_define([LPBK],[127.0.0.1])
+   OVSDB_CLUSTER_START_IDLTEST([$2], ["ptcp:0:"LPBK])
+   PARSE_LISTENING_PORT([s1.log], [TCP_PORT_1])
+   PARSE_LISTENING_PORT([s2.log], [TCP_PORT_2])
+   PARSE_LISTENING_PORT([s3.log], [TCP_PORT_3])
+   remotes=tcp:LPBK:$TCP_PORT_1,tcp:LPBK:$TCP_PORT_2,tcp:LPBK:$TCP_PORT_3
+
+   m4_if([$3], [], [],
+     [AT_CHECK([ovsdb-client transact $remotes $3], [0], [ignore], [ignore])])
+   AT_CHECK([test-ovsdb '-vPATTERN:console:test-ovsdb|%c|%m' -vjsonrpc -t10 idl tcp:LPBK:$TCP_PORT_1 $4],
+            [0], [stdout], [ignore])
+   AT_CHECK([sort stdout | uuidfilt]m4_if([$7],,, [[| $7]]),
+            [0], [$5])
+   AT_CLEANUP])
+
+# Checks that monitor_cond_since works fine when disconnects happen
+# with cond_change requests in flight (i.e., IDL is properly updated).
+OVSDB_CHECK_CLUSTER_IDL_C([simple idl, monitor_cond_since, cluster disconnect],
+  3,
+  [['["idltest",
+       {"op": "insert",
+       "table": "simple",
+       "row": {"i": 1,
+               "r": 1.0,
+               "b": true}},
+       {"op": "insert",
+       "table": "simple",
+       "row": {"i": 2,
+               "r": 1.0,
+               "b": true}}]']],
+  [['condition simple []' \
+    'condition simple [["i","==",2]]' \
+    'condition simple [["i","==",1]]' \
+    '+reconnect' \
+    '["idltest",
+      {"op": "update",
+       "table": "simple",
+       "where": [["i", "==", 1]],
+       "row": {"r": 2.0 }}]']],
+  [[000: change conditions
+001: empty
+002: change conditions
+003: i=2 r=1 b=true s= u=<0> ia=[] ra=[] ba=[] sa=[] ua=[] uuid=<1>
+004: change conditions
+005: reconnect
+006: i=2 r=1 b=true s= u=<0> ia=[] ra=[] ba=[] sa=[] ua=[] uuid=<1>
+007: {"error":null,"result":[{"count":1}]}
+008: i=1 r=2 b=true s= u=<0> ia=[] ra=[] ba=[] sa=[] ua=[] uuid=<2>
+009: done
+]])

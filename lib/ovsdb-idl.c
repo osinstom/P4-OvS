@@ -240,6 +240,10 @@ static void ovsdb_idl_send_monitor_request(struct ovsdb_idl *,
                                            struct ovsdb_idl_db *,
                                            enum ovsdb_idl_monitor_method);
 static void ovsdb_idl_db_clear(struct ovsdb_idl_db *db);
+static void ovsdb_idl_db_ack_condition(struct ovsdb_idl_db *db);
+static void ovsdb_idl_db_sync_condition(struct ovsdb_idl_db *db);
+static void ovsdb_idl_condition_move(struct ovsdb_idl_condition **dst,
+                                     struct ovsdb_idl_condition **src);
 
 struct ovsdb_idl {
     struct ovsdb_idl_db server;
@@ -317,14 +321,19 @@ static bool ovsdb_idl_handle_monitor_canceled(struct ovsdb_idl *,
 static void ovsdb_idl_db_parse_update(struct ovsdb_idl_db *,
                                       const struct json *table_updates,
                                       enum ovsdb_idl_monitor_method method);
-static bool ovsdb_idl_process_update(struct ovsdb_idl_table *,
-                                     const struct uuid *,
-                                     const struct json *old,
-                                     const struct json *new);
-static bool ovsdb_idl_process_update2(struct ovsdb_idl_table *,
-                                      const struct uuid *,
-                                      const char *operation,
-                                      const struct json *row);
+enum update_result {
+    OVSDB_IDL_UPDATE_DB_CHANGED,
+    OVSDB_IDL_UPDATE_NO_CHANGES,
+    OVSDB_IDL_UPDATE_INCONSISTENT,
+};
+static enum update_result ovsdb_idl_process_update(struct ovsdb_idl_table *,
+                                                   const struct uuid *,
+                                                   const struct json *old,
+                                                   const struct json *new);
+static enum update_result ovsdb_idl_process_update2(struct ovsdb_idl_table *,
+                                                    const struct uuid *,
+                                                    const char *operation,
+                                                    const struct json *row);
 static void ovsdb_idl_insert_row(struct ovsdb_idl_row *, const struct json *);
 static void ovsdb_idl_delete_row(struct ovsdb_idl_row *);
 static bool ovsdb_idl_modify_row(struct ovsdb_idl_row *, const struct json *);
@@ -385,6 +394,8 @@ static void ovsdb_idl_send_cond_change(struct ovsdb_idl *idl);
 static void ovsdb_idl_destroy_indexes(struct ovsdb_idl_table *);
 static void ovsdb_idl_add_to_indexes(const struct ovsdb_idl_row *);
 static void ovsdb_idl_remove_from_indexes(const struct ovsdb_idl_row *);
+static int ovsdb_idl_try_commit_loop_txn(struct ovsdb_idl_loop *loop,
+                                         bool *may_need_wakeup);
 
 static void
 ovsdb_idl_db_init(struct ovsdb_idl_db *db, const struct ovsdb_idl_class *class,
@@ -422,9 +433,11 @@ ovsdb_idl_db_init(struct ovsdb_idl_db *db, const struct ovsdb_idl_class *class,
             = table->change_seqno[OVSDB_IDL_CHANGE_MODIFY]
             = table->change_seqno[OVSDB_IDL_CHANGE_DELETE] = 0;
         table->db = db;
-        ovsdb_idl_condition_init(&table->condition);
-        ovsdb_idl_condition_add_clause_true(&table->condition);
-        table->cond_changed = false;
+        table->ack_cond = NULL;
+        table->req_cond = NULL;
+        table->new_cond = xmalloc(sizeof *table->new_cond);
+        ovsdb_idl_condition_init(table->new_cond);
+        ovsdb_idl_condition_add_clause_true(table->new_cond);
     }
     db->monitor_id = json_array_create_2(json_string_create("monid"),
                                          json_string_create(class->database));
@@ -566,12 +579,15 @@ ovsdb_idl_reset_min_index(struct ovsdb_idl *idl)
 static void
 ovsdb_idl_db_destroy(struct ovsdb_idl_db *db)
 {
+    struct ovsdb_idl_condition *null_cond = NULL;
     ovs_assert(!db->txn);
     ovsdb_idl_db_txn_abort_all(db);
     ovsdb_idl_db_clear(db);
     for (size_t i = 0; i < db->class_->n_tables; i++) {
         struct ovsdb_idl_table *table = &db->tables[i];
-        ovsdb_idl_condition_destroy(&table->condition);
+        ovsdb_idl_condition_move(&table->ack_cond, &null_cond);
+        ovsdb_idl_condition_move(&table->req_cond, &null_cond);
+        ovsdb_idl_condition_move(&table->new_cond, &null_cond);
         ovsdb_idl_destroy_indexes(table);
         shash_destroy(&table->columns);
         hmap_destroy(&table->rows);
@@ -700,6 +716,12 @@ ovsdb_idl_send_request(struct ovsdb_idl *idl, struct jsonrpc_msg *request)
 static void
 ovsdb_idl_restart_fsm(struct ovsdb_idl *idl)
 {
+    /* Resync data DB table conditions to avoid missing updates due to
+     * conditions that were in flight or changed locally while the connection
+     * was down.
+     */
+    ovsdb_idl_db_sync_condition(&idl->data);
+
     ovsdb_idl_send_schema_request(idl, &idl->server);
     ovsdb_idl_transition(idl, IDL_S_SERVER_SCHEMA_REQUESTED);
     idl->data.monitoring = OVSDB_IDL_NOT_MONITORING;
@@ -807,7 +829,9 @@ ovsdb_idl_process_response(struct ovsdb_idl *idl, struct jsonrpc_msg *msg)
          * do, it's a "monitor_cond_change", which means that the conditional
          * monitor clauses were updated.
          *
-         * If further condition changes were pending, send them now. */
+         * Mark the last requested conditions as acked and if further
+         * condition changes were pending, send them now. */
+        ovsdb_idl_db_ack_condition(&idl->data);
         ovsdb_idl_send_cond_change(idl);
         idl->data.cond_seqno++;
         break;
@@ -1503,17 +1527,34 @@ ovsdb_idl_condition_equals(const struct ovsdb_idl_condition *a,
 }
 
 static void
-ovsdb_idl_condition_clone(struct ovsdb_idl_condition *dst,
+ovsdb_idl_condition_clone(struct ovsdb_idl_condition **dst,
                           const struct ovsdb_idl_condition *src)
 {
-    ovsdb_idl_condition_init(dst);
+    if (*dst) {
+        ovsdb_idl_condition_destroy(*dst);
+    } else {
+        *dst = xmalloc(sizeof **dst);
+    }
+    ovsdb_idl_condition_init(*dst);
 
-    dst->is_true = src->is_true;
+    (*dst)->is_true = src->is_true;
 
     const struct ovsdb_idl_clause *clause;
     HMAP_FOR_EACH (clause, hmap_node, &src->clauses) {
-        ovsdb_idl_condition_add_clause__(dst, clause, clause->hmap_node.hash);
+        ovsdb_idl_condition_add_clause__(*dst, clause, clause->hmap_node.hash);
     }
+}
+
+static void
+ovsdb_idl_condition_move(struct ovsdb_idl_condition **dst,
+                         struct ovsdb_idl_condition **src)
+{
+    if (*dst) {
+        ovsdb_idl_condition_destroy(*dst);
+        free(*dst);
+    }
+    *dst = *src;
+    *src = NULL;
 }
 
 static unsigned int
@@ -1521,12 +1562,25 @@ ovsdb_idl_db_set_condition(struct ovsdb_idl_db *db,
                            const struct ovsdb_idl_table_class *tc,
                            const struct ovsdb_idl_condition *condition)
 {
+    struct ovsdb_idl_condition *table_cond;
     struct ovsdb_idl_table *table = ovsdb_idl_db_table_from_class(db, tc);
     unsigned int seqno = db->cond_seqno;
-    if (!ovsdb_idl_condition_equals(condition, &table->condition)) {
-        ovsdb_idl_condition_destroy(&table->condition);
-        ovsdb_idl_condition_clone(&table->condition, condition);
-        db->cond_changed = table->cond_changed = true;
+
+    /* Compare the new condition to the last known condition which can be
+     * either "new" (not sent yet), "requested" or "acked", in this order.
+     */
+    if (table->new_cond) {
+        table_cond = table->new_cond;
+    } else if (table->req_cond) {
+        table_cond = table->req_cond;
+    } else {
+        table_cond = table->ack_cond;
+    }
+    ovs_assert(table_cond);
+
+    if (!ovsdb_idl_condition_equals(condition, table_cond)) {
+        ovsdb_idl_condition_clone(&table->new_cond, condition);
+        db->cond_changed = true;
         poll_immediate_wake();
         return seqno + 1;
     }
@@ -1571,9 +1625,8 @@ ovsdb_idl_condition_to_json(const struct ovsdb_idl_condition *cnd)
 }
 
 static struct json *
-ovsdb_idl_create_cond_change_req(struct ovsdb_idl_table *table)
+ovsdb_idl_create_cond_change_req(const struct ovsdb_idl_condition *cond)
 {
-    const struct ovsdb_idl_condition *cond = &table->condition;
     struct json *monitor_cond_change_request = json_object_create();
     struct json *cond_json = ovsdb_idl_condition_to_json(cond);
 
@@ -1593,8 +1646,12 @@ ovsdb_idl_db_compose_cond_change(struct ovsdb_idl_db *db)
     for (size_t i = 0; i < db->class_->n_tables; i++) {
         struct ovsdb_idl_table *table = &db->tables[i];
 
-        if (table->cond_changed) {
-            struct json *req = ovsdb_idl_create_cond_change_req(table);
+        /* Always use the most recent conditions set by the IDL client when
+         * requesting monitor_cond_change, i.e., table->new_cond.
+         */
+        if (table->new_cond) {
+            struct json *req =
+                ovsdb_idl_create_cond_change_req(table->new_cond);
             if (req) {
                 if (!monitor_cond_change_requests) {
                     monitor_cond_change_requests = json_object_create();
@@ -1603,7 +1660,11 @@ ovsdb_idl_db_compose_cond_change(struct ovsdb_idl_db *db)
                              table->class_->name,
                              json_array_create_1(req));
             }
-            table->cond_changed = false;
+            /* Mark the new condition as requested by moving it to req_cond.
+             * If there's already requested condition that's a bug.
+             */
+            ovs_assert(table->req_cond == NULL);
+            ovsdb_idl_condition_move(&table->req_cond, &table->new_cond);
         }
     }
 
@@ -1616,6 +1677,73 @@ ovsdb_idl_db_compose_cond_change(struct ovsdb_idl_db *db)
                                               json_clone(db->monitor_id),
                                               monitor_cond_change_requests);
     return jsonrpc_create_request("monitor_cond_change", params, NULL);
+}
+
+/* Marks all requested table conditions in 'db' as acked by the server.
+ * It should be called when the server replies to monitor_cond_change
+ * requests.
+ */
+static void
+ovsdb_idl_db_ack_condition(struct ovsdb_idl_db *db)
+{
+    for (size_t i = 0; i < db->class_->n_tables; i++) {
+        struct ovsdb_idl_table *table = &db->tables[i];
+
+        if (table->req_cond) {
+            ovsdb_idl_condition_move(&table->ack_cond, &table->req_cond);
+        }
+    }
+}
+
+/* Should be called when the IDL fsm is restarted and resyncs table conditions
+ * based on the state the DB is in:
+ * - if a non-zero last_id is available for the DB then upon reconnect
+ *   the IDL should first request acked conditions to avoid missing updates
+ *   about records that were added before the transaction with
+ *   txn-id == last_id. If there were requested condition changes in flight
+ *   (i.e., req_cond not NULL) and the IDL client didn't set new conditions
+ *   (i.e., new_cond is NULL) then move req_cond to new_cond to trigger a
+ *   follow up monitor_cond_change request.
+ * - if there's no last_id available for the DB then it's safe to use the
+ *   latest conditions set by the IDL client even if they weren't acked yet.
+ */
+static void
+ovsdb_idl_db_sync_condition(struct ovsdb_idl_db *db)
+{
+    bool ack_all = uuid_is_zero(&db->last_id);
+
+    db->cond_changed = false;
+    for (size_t i = 0; i < db->class_->n_tables; i++) {
+        struct ovsdb_idl_table *table = &db->tables[i];
+
+        /* When monitor_cond_since requests will be issued, the
+         * table->ack_cond condition will be added to the "where" clause".
+         * Follow up monitor_cond_change requests will use table->new_cond.
+         */
+        if (ack_all) {
+            if (table->new_cond) {
+                ovsdb_idl_condition_move(&table->req_cond, &table->new_cond);
+            }
+
+            if (table->req_cond) {
+                ovsdb_idl_condition_move(&table->ack_cond, &table->req_cond);
+            }
+        } else {
+            /* If there was no "unsent" condition but instead a
+             * monitor_cond_change request was in flight, move table->req_cond
+             * to table->new_cond and set db->cond_changed to trigger a new
+             * monitor_cond_change request.
+             *
+             * However, if a new condition has been set by the IDL client,
+             * monitor_cond_change will be sent anyway and will use the most
+             * recent table->new_cond so there's no need to update it here.
+             */
+            if (table->req_cond && !table->new_cond) {
+                ovsdb_idl_condition_move(&table->new_cond, &table->req_cond);
+                db->cond_changed = true;
+            }
+        }
+    }
 }
 
 static void
@@ -2072,21 +2200,21 @@ ovsdb_idl_send_monitor_request(struct ovsdb_idl *idl, struct ovsdb_idl_db *db,
             monitor_request = json_object_create();
             json_object_put(monitor_request, "columns", columns);
 
-            const struct ovsdb_idl_condition *cond = &table->condition;
+            /* Always use acked conditions when requesting
+             * monitor_cond/monitor_cond_since.
+             */
+            const struct ovsdb_idl_condition *cond = table->ack_cond;
             if ((monitor_method == OVSDB_IDL_MM_MONITOR_COND ||
                  monitor_method == OVSDB_IDL_MM_MONITOR_COND_SINCE) &&
-                !ovsdb_idl_condition_is_true(cond)) {
+                cond && !ovsdb_idl_condition_is_true(cond)) {
                 json_object_put(monitor_request, "where",
                                 ovsdb_idl_condition_to_json(cond));
-                table->cond_changed = false;
             }
             json_object_put(monitor_requests, tc->name,
                             json_array_create_1(monitor_request));
         }
     }
     free_schema(schema);
-
-    db->cond_changed = false;
 
     struct json *params = json_array_create_3(
                               json_string_create(db->class_->database),
@@ -2295,6 +2423,7 @@ ovsdb_idl_db_parse_update__(struct ovsdb_idl_db *db,
                                       version_suffix, table->class_->name);
         }
         SHASH_FOR_EACH (table_node, json_object(table_update)) {
+            enum update_result result = OVSDB_IDL_UPDATE_NO_CHANGES;
             const struct json *row_update = table_node->data;
             struct uuid uuid;
 
@@ -2327,13 +2456,13 @@ ovsdb_idl_db_parse_update__(struct ovsdb_idl_db *db,
                     operation = ops[i];
                     row = shash_find_data(json_object(row_update), operation);
 
-                    if (row)  {
-                        if (ovsdb_idl_process_update2(table, &uuid, operation,
-                                                      row)) {
-                            db->change_seqno++;
-                        }
-                        break;
+                    if (!row) {
+                        continue;
                     }
+
+                    result = ovsdb_idl_process_update2(table, &uuid,
+                                                       operation, row);
+                    break;
                 }
 
                 /* row_update2 should contain one of the objects */
@@ -2364,10 +2493,24 @@ ovsdb_idl_db_parse_update__(struct ovsdb_idl_db *db,
                                               "and \"new\" members");
                 }
 
-                if (ovsdb_idl_process_update(table, &uuid, old_json,
-                                             new_json)) {
-                    db->change_seqno++;
-                }
+                result = ovsdb_idl_process_update(table, &uuid, old_json,
+                                                  new_json);
+            }
+
+            switch (result) {
+            case OVSDB_IDL_UPDATE_DB_CHANGED:
+                db->change_seqno++;
+                break;
+            case OVSDB_IDL_UPDATE_NO_CHANGES:
+                break;
+            case OVSDB_IDL_UPDATE_INCONSISTENT:
+                memset(&db->last_id, 0, sizeof db->last_id);
+                ovsdb_idl_retry(db->idl);
+                return ovsdb_error(NULL,
+                                   "<row_update%s> received for inconsistent "
+                                   "IDL: reconnecting IDL and resync all "
+                                   "data",
+                                   version_suffix);
             }
         }
     }
@@ -2400,9 +2543,22 @@ ovsdb_idl_get_row(struct ovsdb_idl_table *table, const struct uuid *uuid)
     return NULL;
 }
 
-/* Returns true if a column with mode OVSDB_IDL_MODE_RW changed, false
- * otherwise. */
-static bool
+/* Returns OVSDB_IDL_UPDATE_DB_CHANGED if a column with mode
+ * OVSDB_IDL_MODE_RW changed.
+ *
+ * Some IDL inconsistencies can be detected when processing updates:
+ * - trying to insert an already existing row
+ * - trying to update a missing row
+ * - trying to delete a non existent row
+ *
+ * In such cases OVSDB_IDL_UPDATE_INCONSISTENT is returned.
+ * Even though the IDL client could recover, it's best to report the
+ * inconsistent state because the state the server is in is unknown so the
+ * safest thing to do is to retry (potentially connecting to a new server).
+ *
+ * Returns OVSDB_IDL_UPDATE_NO_CHANGES otherwise.
+ */
+static enum update_result
 ovsdb_idl_process_update(struct ovsdb_idl_table *table,
                          const struct uuid *uuid, const struct json *old,
                          const struct json *new)
@@ -2416,10 +2572,10 @@ ovsdb_idl_process_update(struct ovsdb_idl_table *table,
             /* XXX perhaps we should check the 'old' values? */
             ovsdb_idl_delete_row(row);
         } else {
-            VLOG_WARN_RL(&semantic_rl, "cannot delete missing row "UUID_FMT" "
-                         "from table %s",
-                         UUID_ARGS(uuid), table->class_->name);
-            return false;
+            VLOG_ERR_RL(&semantic_rl, "cannot delete missing row "UUID_FMT" "
+                        "from table %s",
+                        UUID_ARGS(uuid), table->class_->name);
+            return OVSDB_IDL_UPDATE_INCONSISTENT;
         }
     } else if (!old) {
         /* Insert row. */
@@ -2428,35 +2584,50 @@ ovsdb_idl_process_update(struct ovsdb_idl_table *table,
         } else if (ovsdb_idl_row_is_orphan(row)) {
             ovsdb_idl_insert_row(row, new);
         } else {
-            VLOG_WARN_RL(&semantic_rl, "cannot add existing row "UUID_FMT" to "
-                         "table %s", UUID_ARGS(uuid), table->class_->name);
-            return ovsdb_idl_modify_row(row, new);
+            VLOG_ERR_RL(&semantic_rl, "cannot add existing row "UUID_FMT" to "
+                        "table %s", UUID_ARGS(uuid), table->class_->name);
+            return OVSDB_IDL_UPDATE_INCONSISTENT;
         }
     } else {
         /* Modify row. */
         if (row) {
             /* XXX perhaps we should check the 'old' values? */
             if (!ovsdb_idl_row_is_orphan(row)) {
-                return ovsdb_idl_modify_row(row, new);
+                return ovsdb_idl_modify_row(row, new)
+                       ? OVSDB_IDL_UPDATE_DB_CHANGED
+                       : OVSDB_IDL_UPDATE_NO_CHANGES;
             } else {
-                VLOG_WARN_RL(&semantic_rl, "cannot modify missing but "
-                             "referenced row "UUID_FMT" in table %s",
-                             UUID_ARGS(uuid), table->class_->name);
-                ovsdb_idl_insert_row(row, new);
+                VLOG_ERR_RL(&semantic_rl, "cannot modify missing but "
+                            "referenced row "UUID_FMT" in table %s",
+                            UUID_ARGS(uuid), table->class_->name);
+                return OVSDB_IDL_UPDATE_INCONSISTENT;
             }
         } else {
-            VLOG_WARN_RL(&semantic_rl, "cannot modify missing row "UUID_FMT" "
-                         "in table %s", UUID_ARGS(uuid), table->class_->name);
-            ovsdb_idl_insert_row(ovsdb_idl_row_create(table, uuid), new);
+            VLOG_ERR_RL(&semantic_rl, "cannot modify missing row "UUID_FMT" "
+                        "in table %s", UUID_ARGS(uuid), table->class_->name);
+            return OVSDB_IDL_UPDATE_INCONSISTENT;
         }
     }
 
-    return true;
+    return OVSDB_IDL_UPDATE_DB_CHANGED;
 }
 
-/* Returns true if a column with mode OVSDB_IDL_MODE_RW changed, false
- * otherwise. */
-static bool
+/* Returns OVSDB_IDL_UPDATE_DB_CHANGED if a column with mode
+ * OVSDB_IDL_MODE_RW changed.
+ *
+ * Some IDL inconsistencies can be detected when processing updates:
+ * - trying to insert an already existing row
+ * - trying to update a missing row
+ * - trying to delete a non existent row
+ *
+ * In such cases OVSDB_IDL_UPDATE_INCONSISTENT is returned.
+ * Even though the IDL client could recover, it's best to report the
+ * inconsistent state because the state the server is in is unknown so the
+ * safest thing to do is to retry (potentially connecting to a new server).
+ *
+ * Otherwise OVSDB_IDL_UPDATE_NO_CHANGES is returned.
+ */
+static enum update_result
 ovsdb_idl_process_update2(struct ovsdb_idl_table *table,
                           const struct uuid *uuid,
                           const char *operation,
@@ -2470,10 +2641,10 @@ ovsdb_idl_process_update2(struct ovsdb_idl_table *table,
         if (row && !ovsdb_idl_row_is_orphan(row)) {
             ovsdb_idl_delete_row(row);
         } else {
-            VLOG_WARN_RL(&semantic_rl, "cannot delete missing row "UUID_FMT" "
-                         "from table %s",
-                         UUID_ARGS(uuid), table->class_->name);
-            return false;
+            VLOG_ERR_RL(&semantic_rl, "cannot delete missing row "UUID_FMT" "
+                        "from table %s",
+                        UUID_ARGS(uuid), table->class_->name);
+            return OVSDB_IDL_UPDATE_INCONSISTENT;
         }
     } else if (!strcmp(operation, "insert") || !strcmp(operation, "initial")) {
         /* Insert row. */
@@ -2482,34 +2653,35 @@ ovsdb_idl_process_update2(struct ovsdb_idl_table *table,
         } else if (ovsdb_idl_row_is_orphan(row)) {
             ovsdb_idl_insert_row(row, json_row);
         } else {
-            VLOG_WARN_RL(&semantic_rl, "cannot add existing row "UUID_FMT" to "
-                         "table %s", UUID_ARGS(uuid), table->class_->name);
-            ovsdb_idl_delete_row(row);
-            ovsdb_idl_insert_row(row, json_row);
+            VLOG_ERR_RL(&semantic_rl, "cannot add existing row "UUID_FMT" to "
+                        "table %s", UUID_ARGS(uuid), table->class_->name);
+            return OVSDB_IDL_UPDATE_INCONSISTENT;
         }
     } else if (!strcmp(operation, "modify")) {
         /* Modify row. */
         if (row) {
             if (!ovsdb_idl_row_is_orphan(row)) {
-                return ovsdb_idl_modify_row_by_diff(row, json_row);
+                return ovsdb_idl_modify_row_by_diff(row, json_row)
+                       ? OVSDB_IDL_UPDATE_DB_CHANGED
+                       : OVSDB_IDL_UPDATE_NO_CHANGES;
             } else {
-                VLOG_WARN_RL(&semantic_rl, "cannot modify missing but "
-                             "referenced row "UUID_FMT" in table %s",
-                             UUID_ARGS(uuid), table->class_->name);
-                return false;
+                VLOG_ERR_RL(&semantic_rl, "cannot modify missing but "
+                            "referenced row "UUID_FMT" in table %s",
+                            UUID_ARGS(uuid), table->class_->name);
+                return OVSDB_IDL_UPDATE_INCONSISTENT;
             }
         } else {
-            VLOG_WARN_RL(&semantic_rl, "cannot modify missing row "UUID_FMT" "
-                         "in table %s", UUID_ARGS(uuid), table->class_->name);
-            return false;
+            VLOG_ERR_RL(&semantic_rl, "cannot modify missing row "UUID_FMT" "
+                        "in table %s", UUID_ARGS(uuid), table->class_->name);
+            return OVSDB_IDL_UPDATE_INCONSISTENT;
         }
     } else {
-        VLOG_WARN_RL(&semantic_rl, "unknown operation %s to "
-                     "table %s", operation, table->class_->name);
-        return false;
+        VLOG_ERR_RL(&semantic_rl, "unknown operation %s to "
+                    "table %s", operation, table->class_->name);
+        return OVSDB_IDL_UPDATE_NO_CHANGES;
     }
 
-    return true;
+    return OVSDB_IDL_UPDATE_DB_CHANGED;
 }
 
 /* Recursively add rows to tracked change lists for current row
@@ -4459,8 +4631,7 @@ ovsdb_idl_txn_write__(const struct ovsdb_idl_row *row_,
      * transaction only does writes of existing values, without making any real
      * changes, we will drop the whole transaction later in
      * ovsdb_idl_txn_commit().) */
-    if (datum->keys && datum->values &&
-        write_only && ovsdb_datum_equals(ovsdb_idl_read(row, column),
+    if (write_only && ovsdb_datum_equals(ovsdb_idl_read(row, column),
                                          datum, &column->type)) {
         goto discard_datum;
     }
@@ -5340,11 +5511,98 @@ struct ovsdb_idl_txn *
 ovsdb_idl_loop_run(struct ovsdb_idl_loop *loop)
 {
     ovsdb_idl_run(loop->idl);
+
+    /* See if we can commit the loop->committing_txn. */
+    if (loop->committing_txn) {
+        ovsdb_idl_try_commit_loop_txn(loop, NULL);
+    }
+
     loop->open_txn = (loop->committing_txn
                       || ovsdb_idl_get_seqno(loop->idl) == loop->skip_seqno
                       ? NULL
                       : ovsdb_idl_txn_create(loop->idl));
     return loop->open_txn;
+}
+
+/* Attempts to commit the current transaction, if one is open.
+ *
+ * If a transaction was open, in this or a previous iteration of the main loop,
+ * and had not before finished committing (successfully or unsuccessfully), the
+ * return value is one of:
+ *
+ *  1: The transaction committed successfully (or it did not change anything in
+ *     the database).
+ *  0: The transaction failed.
+ * -1: The commit is still in progress.
+ *
+ * Thus, the return value is -1 if the transaction is in progress and otherwise
+ * true for success, false for failure.
+ *
+ * (In the corner case where the IDL sends a transaction to the database and
+ * the database commits it, and the connection between the IDL and the database
+ * drops before the IDL receives the message confirming the commit, this
+ * function can return 0 even though the transaction succeeded.)
+ */
+static int
+ovsdb_idl_try_commit_loop_txn(struct ovsdb_idl_loop *loop,
+                              bool *may_need_wakeup)
+{
+    if (!loop->committing_txn) {
+        /* Not a meaningful return value: no transaction was in progress. */
+        return 1;
+    }
+
+    int retval;
+    struct ovsdb_idl_txn *txn = loop->committing_txn;
+
+    enum ovsdb_idl_txn_status status = ovsdb_idl_txn_commit(txn);
+    if (status != TXN_INCOMPLETE) {
+        switch (status) {
+        case TXN_TRY_AGAIN:
+            /* We want to re-evaluate the database when it's changed from
+             * the contents that it had when we started the commit.  (That
+             * might have already happened.) */
+            loop->skip_seqno = loop->precommit_seqno;
+            if (ovsdb_idl_get_seqno(loop->idl) != loop->skip_seqno
+                && may_need_wakeup) {
+                *may_need_wakeup = true;
+            }
+            retval = 0;
+            break;
+
+        case TXN_SUCCESS:
+            /* Possibly some work on the database was deferred because no
+             * further transaction could proceed.  Wake up again. */
+            retval = 1;
+            loop->cur_cfg = loop->next_cfg;
+            if (may_need_wakeup) {
+                *may_need_wakeup =  true;
+            }
+            break;
+
+        case TXN_UNCHANGED:
+            retval = 1;
+            loop->cur_cfg = loop->next_cfg;
+            break;
+
+        case TXN_ABORTED:
+        case TXN_NOT_LOCKED:
+        case TXN_ERROR:
+            retval = 0;
+            break;
+
+        case TXN_UNCOMMITTED:
+        case TXN_INCOMPLETE:
+        default:
+            OVS_NOT_REACHED();
+        }
+        ovsdb_idl_txn_destroy(txn);
+        loop->committing_txn = NULL;
+    } else {
+        retval = -1;
+    }
+
+    return retval;
 }
 
 /* Attempts to commit the current transaction, if one is open, and sets up the
@@ -5377,57 +5635,11 @@ ovsdb_idl_loop_commit_and_wait(struct ovsdb_idl_loop *loop)
         loop->precommit_seqno = ovsdb_idl_get_seqno(loop->idl);
     }
 
-    struct ovsdb_idl_txn *txn = loop->committing_txn;
-    int retval;
-    if (txn) {
-        enum ovsdb_idl_txn_status status = ovsdb_idl_txn_commit(txn);
-        if (status != TXN_INCOMPLETE) {
-            switch (status) {
-            case TXN_TRY_AGAIN:
-                /* We want to re-evaluate the database when it's changed from
-                 * the contents that it had when we started the commit.  (That
-                 * might have already happened.) */
-                loop->skip_seqno = loop->precommit_seqno;
-                if (ovsdb_idl_get_seqno(loop->idl) != loop->skip_seqno) {
-                    poll_immediate_wake();
-                }
-                retval = 0;
-                break;
-
-            case TXN_SUCCESS:
-                /* Possibly some work on the database was deferred because no
-                 * further transaction could proceed.  Wake up again. */
-                retval = 1;
-                loop->cur_cfg = loop->next_cfg;
-                poll_immediate_wake();
-                break;
-
-            case TXN_UNCHANGED:
-                retval = 1;
-                loop->cur_cfg = loop->next_cfg;
-                break;
-
-            case TXN_ABORTED:
-            case TXN_NOT_LOCKED:
-            case TXN_ERROR:
-                retval = 0;
-                break;
-
-            case TXN_UNCOMMITTED:
-            case TXN_INCOMPLETE:
-            default:
-                OVS_NOT_REACHED();
-            }
-            ovsdb_idl_txn_destroy(txn);
-            loop->committing_txn = NULL;
-        } else {
-            retval = -1;
-        }
-    } else {
-        /* Not a meaningful return value: no transaction was in progress. */
-        retval = 1;
+    bool may_need_wakeup = false;
+    int retval = ovsdb_idl_try_commit_loop_txn(loop, &may_need_wakeup);
+    if (may_need_wakeup) {
+        poll_immediate_wake();
     }
-
     ovsdb_idl_wait(loop->idl);
 
     return retval;

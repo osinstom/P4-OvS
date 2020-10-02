@@ -74,6 +74,15 @@ matrix:
     - arch: arm64
       compiler: clang
       env: OPTS="--disable-ssl"
+    - env: DEB_PACKAGE=1
+      addons:
+        apt:
+          packages:
+            - linux-headers-$(uname -r)
+            - build-essential
+            - fakeroot
+            - devscripts
+            - equivs
 
 script: ./.travis/${TRAVIS_OS_NAME}-build.sh $OPTS
 
