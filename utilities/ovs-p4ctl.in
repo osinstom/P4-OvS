@@ -53,7 +53,9 @@ USAGE = "ovs-p4ctl: P4Runtime switch management utility\n" \
         "  del-entry SWITCH TABLE KEY          delete a table entry with KEY from TABLE\n" \
         "  dump-entries SWITCH [TBL]           print table entries\n" \
         "  set-default-entry SWITCH TBL ACTION sets a default table entry for TBL\n" \
-        "  get-default-entry SWITCH TBL print  default table entry for TBL\n"
+        "  get-default-entry SWITCH TBL        print default table entry for TBL\n\n" \
+        "  dump-counters SWITCH [COUNTER_ID]   print content of counters\n"
+
 
 def usage():
     print(USAGE)
@@ -265,6 +267,12 @@ class P4InfoHelper(object):
             return lambda id: self.get_name(primitive, id)
 
         raise AttributeError("%r object has no attribute %r" % (self.__class__, attr))
+
+    def get_counter_type(self, counter_id):
+        for c in self.p4info.counters:
+            pre = c.preamble
+            if pre.id == counter_id:
+               return c.spec.unit
 
     def get_match_fields(self, table_name):
         for t in self.p4info.tables:
@@ -855,6 +863,47 @@ def p4ctl_dump_entries(client, bridge, tbl_name=None):
         for entry in response.entities:
             print(_format_entry(helper, entry.table_entry))
 
+def _format_counter_entry(p4info_helper, entry):
+    counter_name = p4info_helper.get_name('counters', entry.counter_id)
+    output_buffer = "  "
+    output_buffer += "counter={}".format(counter_name)
+
+    output_buffer += ", index={}".format(entry.index.index)
+
+    type = ""
+    unit = p4info_helper.get_counter_type(entry.counter_id)
+    if unit == 1:
+       type = "BYTES"
+    elif unit == 2:
+       type = "PACKETS"
+    elif unit == 3:
+       type = "PACKETS_AND_BYTES"
+
+    output_buffer += ", unit={}".format(type)
+
+    return output_buffer
+
+@with_client
+def p4ctl_dump_counters(client, bridge, name=None, index=None):
+    p4info = client.get_p4info()
+    if not p4info:
+        raise Exception("cannot retrieve P4Info from device {}".format(bridge))
+    helper = P4InfoHelper(p4info)
+    entity = p4runtime_pb2.Entity()
+    counter_entry = entity.counter_entry
+    if not name:
+        counter_entry.counter_id = 0;
+    else:
+        counter_entry.counter_id = helper.get_counters_id(name)
+
+    if index:
+        counter_entry.index.index = int(index)
+
+    print("Counter entries for bridge {}:".format(bridge))
+    for response in client.read_one(entity):
+            for entry in response.entities:
+                print(_format_counter_entry(helper, entry.counter_entry))
+
 all_commands = {
     "show": (p4ctl_show, 1),
     "set-pipe": (p4ctl_set_pipe, 3),
@@ -864,6 +913,7 @@ all_commands = {
     "get-default-entry": (p4ctl_get_default_entry, 2),
     "del-entry": (p4ctl_del_entry, 2),
     "dump-entries": (p4ctl_dump_entries, 1),
+    "dump-counters": (p4ctl_dump_counters, 1),
 }
 
 def validate_args(argv, command, expected_nr):
